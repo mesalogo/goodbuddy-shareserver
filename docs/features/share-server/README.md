@@ -1,7 +1,8 @@
 # ShareServer
 
 ShareServer 是 GoodBuddy 设备共享网络的独立 Web 服务。它为一个或多个组织提供身份与设备
-目录、能力发布、授权策略、任务路由、可选数据中继、能力包更新、网关联邦和审计管理。
+目录、能力发布、授权策略、任务路由、可选数据中继、能力包更新、网关联邦、Office 编辑和
+审计管理。
 
 ShareServer 不属于 Electron Main，不负责桌面端局域网发现，也不自动取得设备上的能力、
 文件、凭据或 SSH Host。
@@ -16,6 +17,7 @@ ShareServer 不属于 Electron Main，不负责桌面端局域网发现，也不
 | [技术设计](./technical-design.md) | 服务模块、API、数据、部署、运维和验证 |
 | [实施进度](./progress.md) | 已验证实现、剩余生产工作与验证证据 |
 | [共享网络总体设计](../../../../goodbuddy/docs/architecture/share-network-architecture.md) | 跨端身份、能力、授权、任务、更新和协议权威（GoodBuddy 仓库） |
+| [Desktop Office 协同编辑](../../../../goodbuddy/docs/features/office-document-editing/README.md) | 文档 Tab、源文件回写、冲突和 AI 选区编辑（GoodBuddy 仓库） |
 
 当前没有单独的 User Stories：管理员、能力发布者、审计员和普通成员场景已进入 PRD 与逻辑
 设计。仓库已建立可运行的全控制台交互原型；它用于确认信息架构与交互，不代表生产服务已经
@@ -26,7 +28,7 @@ ShareServer 不属于 Electron Main，不负责桌面端局域网发现，也不
 ## 角色
 
 - **系统管理员**：维护实例、身份源、域名、证书、存储和全局限制。
-- **组织管理员**：管理本组织成员、设备、组、策略、能力和联邦关系。
+- **组织管理员**：管理本组织成员、设备、组、策略、能力、Office 编辑政策和联邦关系。
 - **能力发布者**：在获准范围内发布设备能力或签名能力包。
 - **审批人**：处理调用、发布、更新和联邦申请。
 - **审计员**：只读查看和导出获准范围内的审计事件。

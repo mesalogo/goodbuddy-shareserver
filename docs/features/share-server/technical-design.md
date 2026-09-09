@@ -5,8 +5,8 @@
 | 项目 | 内容 |
 | --- | --- |
 | 状态 | 设计中 |
-| 版本 | 0.2 |
-| 日期 | 2026-09-05 |
+| 版本 | 0.3 |
+| 日期 | 2026-09-09 |
 | 关联 PRD | [ShareServer PRD](./prd.md) |
 | 功能逻辑 | [功能逻辑设计](./logic-design.md) |
 | 共享协议 | [共享网络总体设计](../../../../goodbuddy/docs/architecture/share-network-architecture.md) |
@@ -43,6 +43,7 @@ goodbuddy-shareserver/
     tasks/
     relay/
     packages/
+    office/
     federation/
     audit/
   web/
@@ -62,7 +63,8 @@ ShareServer 仍不得导入 Electron 的 `src/shared`，也不得依赖相邻桌
 
 - 使用与仓库一致的 TypeScript/Node.js 工具链，具体 HTTP 框架在实现前根据维护性选择。
 - PostgreSQL 是组织、策略、任务元数据和审计的权威数据库。
-- Package 与可选中继暂存使用 S3 兼容对象存储；不开启对应功能时不要求对象存储。
+- Package、可选中继暂存和 Office 工作副本使用 S3 兼容对象存储；不开启对应功能时不要求
+  对象存储，启用 Office 时对象存储是必需依赖。
 - Web 控制台与 API 同源部署，采用严格 CSP，不在浏览器保存设备凭据。
 - 单实例部署可完整工作；水平扩展时再引入共享事件/连接路由组件，不为未验证规模预设复杂
   分布式协议。
@@ -80,6 +82,7 @@ ShareServer 仍不得导入 Electron 的 `src/shared`，也不得依赖相邻桌
 | `tasks` | task/attempt、provider 路由、状态和取消 |
 | `relay` | 可选有界数据中继，不解释能力正文 |
 | `packages` | 不可变对象、签名目录、通道和撤销 |
+| `office` | 编辑会话、工作副本、ONLYOFFICE 配置、callback、checkpoint、保留和健康 |
 | `federation` | 网关身份、offer、双边策略和跨组织映射 |
 | `audit` | 事务内审计写入、查询、保留和导出 |
 
@@ -87,18 +90,21 @@ ShareServer 仍不得导入 Electron 的 `src/shared`，也不得依赖相邻桌
 
 ## 4. API 边界
 
-建议分为四类 audience：
+建议分为六类 audience：
 
 ```text
 /api/v1/web/*         管理控制台与成员自助 API
 /api/v1/device/*      设备注册、目录和任务控制 API
+/api/v1/office/*      Desktop Office 会话、文件和事件 API
 /api/v1/federation/*  ShareServer 间 API
 /api/v1/public/*      服务描述、健康与登录入口
+/internal/office/*    ONLYOFFICE 文件读取和 callback API
 ```
 
 设备使用 WebSocket `/api/v1/device/connect` 建立出站控制通道。包下载使用短期、绑定主体和对象
 摘要的 URL。联邦 API 使用网关身份，不接受普通用户 session。每类 token 使用不同 issuer/
-audience/scope，不能互换。
+audience/scope，不能互换。Office 启动 code、文件 token 和 callback token 也使用互不相同的
+audience，并绑定单个 `DocumentEditSession`。
 
 所有请求经 schema、认证、organization scope、授权、速率和大小边界。列表使用游标分页和固定
 最大页；错误返回 request ID、稳定 code 和有界参数。
@@ -135,6 +141,8 @@ package_objects
 package_releases
 release_channels
 update_policies
+document_edit_sessions
+document_checkpoints
 federation_trusts
 federation_capability_exports
 audit_events
@@ -155,6 +163,10 @@ revocations
   `project` 和 `automation` 种类及 Provider 验证后的本地关联 ID 摘要。Provider 执行时按该
   revision 在本地重新解析分区并检索；服务端不接收记忆文本、来源正文、Embedding 或检索
   结果。新增来源是权限扩大，移除来源是单向收紧。
+- `document_edit_sessions` 只保存组织、用户、设备、公开来源 ID、显示名、格式、对象键、摘要、
+  访问模式、策略 revision、状态和保留期限，不保存 Desktop 绝对路径。
+- `document_checkpoints` 以 session 内单调 revision 保存对象键、大小、SHA-256、callback 幂等键
+  和时间；`source_commit_confirmed` 只表示 Desktop 回报结果，不由 callback 自动填写。
 
 ## 6. 事务与一致性
 
@@ -164,6 +176,8 @@ revocations
 - 设备在线状态允许短暂最终一致；身份、撤销、授权和任务接受必须走权威存储。
 - 重复注册挑战、联邦 offer 和 task create 使用唯一幂等键。
 - 无法确认 provider 副作用时只更新 `outcome_unknown`，不靠消息队列自动重放。
+- Office callback 的临时对象、checkpoint 行和审计事件在同一提交边界发布。数据库提交失败时
+  临时对象保持不可下载并由清理任务删除；重复 callback 依赖会话内幂等键返回已有 revision。
 
 ## 7. 设备连接与任务
 
@@ -200,7 +214,72 @@ authorize -> create task -> resolve exact provider connection
 Release catalog 使用独立签名域。服务器不能重打包已签名 payload；镜像目标必须保持相同字节、
 大小和 SHA-256。撤销更新目录和授权，不覆盖或原地删除仍受审计保留的对象。
 
-## 10. 联邦协议
+## 10. Office 编辑服务
+
+### 10.1 部署边界
+
+ShareServer 集成 ONLYOFFICE Docs Developer Edition，但不把 Document Server 代码并入 Hono
+进程。生产部署使用独立容器和内部网络：
+
+```text
+GoodBuddy Desktop -> TLS reverse proxy -> ShareServer Office API
+                                          |-> S3 compatible object storage
+                                          |-> ONLYOFFICE Document Server
+                                          `-> Office callback worker
+```
+
+Desktop 只知道 ShareServer 公开 origin。Document Server 内部地址、JWT 密钥、对象存储凭据和
+callback 内部地址只存在于部署配置或密钥管理系统。正式采用前必须完成许可证和桌面分发审核。
+
+### 10.2 Desktop API
+
+```text
+POST   /api/v1/office/sessions
+PUT    /api/v1/office/sessions/{id}/source
+POST   /api/v1/office/sessions/{id}/launch
+GET    /api/v1/office/sessions/{id}
+GET    /api/v1/office/sessions/{id}/events
+GET    /api/v1/office/sessions/{id}/checkpoints/{revision}
+POST   /api/v1/office/sessions/{id}/source-commit
+DELETE /api/v1/office/sessions/{id}
+
+GET    /internal/office/files/{objectToken}
+POST   /internal/office/callback/{callbackToken}
+```
+
+Desktop 使用设备凭据创建会话，只提交公开来源 ID、显示名、MIME、声明大小和 SHA-256。上传按
+流读取并校验真实格式，不接受 Desktop 指定对象键。`launch` 返回一次性 code；编辑页面交换为
+HttpOnly、Secure、SameSite Cookie 后 code 立即失效。
+
+ONLYOFFICE 文件 URL 和 callback URL 由 ShareServer 生成固定 origin，token 绑定 session、
+revision、动作、大小和期限。接口不接受调用方提供的任意 callback URL。
+
+### 10.3 保存检查点
+
+callback 输出先写入随机临时对象，完成大小、摘要、格式和普通对象检查后发布不可变 checkpoint。
+ShareServer 随后通过设备事件通道通知 Desktop。只有 Desktop 下载复核并回报
+`source_commit_confirmed` 后，服务端审计才记录源文件已回写；冲突、超时和未知结果使用独立
+状态，不能把“编辑器保存成功”翻译为“本地文件已保存”。
+
+### 10.4 编辑器插件和 AI
+
+ShareServer 托管固定版本的 GoodBuddy ONLYOFFICE 插件，并在会话配置中精确启用。插件只交换
+有界选区描述、文档 revision、白名单编辑操作和非正文状态事件。它不能接收 JavaScript、宏、
+任意 ONLYOFFICE 方法名或 ShareServer 管理 token。
+
+AI 请求仍由 GoodBuddy Desktop 的 Conversation 和 Runtime 执行。Ask 只能生成建议；Execute
+成功取得绑定 session、revision 和选区的短期 Grant 后，插件才可在单个撤销上下文中应用修改。
+ShareServer 负责中继有界事件，不持久化选区正文、Prompt 或模型输出。
+
+### 10.5 生命周期和清理
+
+- 会话、工作副本、checkpoint、启动 Cookie 和对象 token 分别设置明确期限。
+- 关闭、撤销或到期立即拒绝新读取、保存和 AI 操作。
+- 清理使用对象标签和数据库状态，重复执行保持幂等，不根据用户文件名构造删除前缀。
+- 法定保留只能延长明确匹配的工作副本、checkpoint 或审计元数据，不能恢复访问授权。
+- 备份恢复不恢复编辑 Cookie、启动 code、文件 token、callback token 或活动编辑连接。
+
+## 11. 联邦协议
 
 - 每个实例生成网关身份和可轮换证书，私钥不进入数据库备份明文。
 - offer 包含双方可人工核对的组织名、端点、指纹、协议和 nonce。
@@ -209,7 +288,7 @@ Release catalog 使用独立签名域。服务器不能重打包已签名 payloa
 - 不接受调用方提供的任意回调 URL、第三方 hop 或内部主体 ID。
 - 证书轮换需要旧身份签名或双方重新确认；身份突变直接暂停关系。
 
-## 11. Web 安全
+## 12. Web 安全
 
 - 使用 HttpOnly、Secure、SameSite cookie 和 CSRF 防护管理 Web session。
 - OIDC 使用 state、nonce、PKCE 和固定回调地址。
@@ -217,8 +296,10 @@ Release catalog 使用独立签名域。服务器不能重打包已签名 payloa
 - 权限隐藏仅改善界面，所有 API 在服务端重新校验。
 - 登录、设备注册、目录、审批、导出和联邦接口分别限速。
 - 密钥字段只能替换、轮换和测试，永不回显。
+- 编辑页面使用独立 CSP 和 Cookie scope；ONLYOFFICE origin 不能访问管理控制台 session。
+- Document Server 默认禁止任意出站网络、宏和未批准插件。编辑文件视为不可信内容。
 
-## 12. 部署与配置
+## 13. 部署与配置
 
 最小生产部署：
 
@@ -228,23 +309,31 @@ ShareServer API + Web
 PostgreSQL
 可选：S3 compatible object storage
 可选：Relay worker
+可选套件：ONLYOFFICE Document Server + Office callback worker（需要对象存储）
 ```
 
 部署配置通过环境变量或挂载文件提供数据库、主密钥、公开 URL、OIDC、邮件、对象存储和限制。
 普通 Web 管理员不能修改基础设施秘密。提供数据库迁移命令、不可变镜像、非 root 容器、健康
 与就绪端点、优雅停止和部署示例。
 
-## 13. 可观测性与备份
+Office 配置包括启用状态、Document Server 内部地址、公开编辑 origin、JWT 密钥引用、对象
+存储 bucket、允许格式、文件大小、组织/用户并发、会话期限和 checkpoint 保留。管理界面不能
+回显密钥。Office readiness 必须完成最小文档创建、编辑器加载、callback 和输出摘要验证，不能
+只检查 Document Server HTTP 端口。
+
+## 14. 可观测性与备份
 
 - 结构化日志只包含 request/task/organization 关联 ID、稳定事件和错误码。
-- 指标覆盖请求、WebSocket、授权结果、任务状态、中继、Package 和联邦，不包含能力正文。
+- 指标覆盖请求、WebSocket、授权结果、任务状态、中继、Package、Office 会话/callback 和联邦，
+  不包含能力正文、文档正文或选区。
 - tracing 跨内部服务传播关联 ID，跨联邦只传播双方同意的关联标识。
-- 备份 PostgreSQL、Package 对象和网关身份；不备份缓存、Web session、nonce 或中继暂存。
+- 备份 PostgreSQL、Package 对象、策略要求保留的 Office checkpoint 和网关身份；不备份缓存、
+  Web session、nonce、Office 短期 token 或中继暂存。
 - 恢复后撤销列表、组织 ID、签名目录和审计序列保持有效，所有设备重新连接。
 
-## 14. 测试策略
+## 15. 测试策略
 
-### 14.1 自动化
+### 15.1 自动化
 
 - schema、认证 audience、CSRF、OIDC 和设备挑战。
 - 每个 repository/API 的跨组织隔离与枚举防护。
@@ -254,8 +343,10 @@ PostgreSQL
 - Package 流式校验、不可变性、权限 diff 和撤销。
 - 联邦双方确认、策略交集、暂停、证书变化和禁止第三 hop。
 - 审计事务、过滤、分页、导出和正文缺失。
+- Office token audience、上传格式/摘要、callback 幂等、checkpoint 不可变、保留和清理。
+- Ask 拒绝编辑写入，Execute Grant 绑定 session、revision 和选区且不能跨文档复用。
 
-### 14.2 集成与部署
+### 15.2 集成与部署
 
 - Desktop 与真实 ShareServer 完成注册、目录、调用、文件和取消。
 - 两个隔离组织验证搜索、计数、错误、对象和审计不泄漏。
@@ -263,10 +354,13 @@ PostgreSQL
 - 中继关闭与开启、容量耗尽、连接中断和大文件背压。
 - 数据库备份恢复、版本升级、滚动停止和设备重连。
 - 生产 TLS、OIDC 和对象存储组合的端到端验证。
+- Windows、macOS、Linux Desktop 与同一 ShareServer 打开、编辑和保存 DOCX、XLSX、PPTX。
+- 多文档会话隔离、同一源文件多开只读、源文件冲突、断线恢复、callback 失败和过期清理。
+- ONLYOFFICE 真实版本、许可证允许的并发矩阵、浏览器兼容、CPU/内存和大文件边界。
 
 设计完成不代表服务已实现；只有独立部署和真实 Desktop 端到端路径通过后才能更新实施状态。
 
-## 15. 当前原型实现
+## 16. 当前原型实现
 
 2026-09-05 建立的交互原型固定以下技术基线：
 
@@ -281,3 +375,5 @@ PostgreSQL
 `productionReady=false`。原型 fixture、角色切换和操作确认只用于评审信息架构，不得被
 Desktop 或部署脚本当作真实身份、策略、任务或审计 API。下一实施阶段必须从 FR-1
 初始化、本地身份、PostgreSQL 组织作用域和事务审计开始，不在 fixture 上叠加生产状态。
+当前原型没有 Office 导航、配置、会话 API、对象存储、ONLYOFFICE、callback 或 Desktop 文档
+Tab 集成；上述章节仅定义目标设计。

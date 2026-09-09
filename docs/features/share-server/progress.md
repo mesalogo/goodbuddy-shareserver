@@ -5,6 +5,17 @@
 ShareServer 已进入可运行交互原型阶段。当前实现用于验证完整控制台信息架构、视觉方向与操作
 流程，不提供生产身份、组织隔离、设备连接、授权、任务路由或数据持久化。
 
+### 2026-09-09：Office 编辑目标设计
+
+- PRD 新增 `FR-14`，将 ONLYOFFICE Docs、编辑会话、工作副本、保存检查点和 callback 定义为
+  ShareServer 可选托管能力。
+- 功能逻辑明确服务端 checkpoint 不等于 Desktop 源文件已保存，并定义单用途凭据、会话状态、
+  callback 幂等、冲突结果和保留规则。
+- 技术设计增加 Office 模块、API audience、数据模型、对象存储、部署依赖、编辑器插件、安全
+  边界和三平台集成测试要求；管理界面设计增加 Office 健康、策略和会话管理。
+- 这些变更只有设计文档，没有修改当前 Hono/React 原型。仓库仍未集成 ONLYOFFICE、对象存储、
+  callback、Office API 或 GoodBuddy Desktop 文档 Tab，不能视为功能实现。
+
 ### 2026-09-06：独立仓库迁移
 
 - 源码、测试、锁文件、构建及容器配置从 GoodBuddy 的 `shareserver/` 移至
@@ -80,9 +91,12 @@ npm run build   # typecheck + Vite Web + server TypeScript passed
 4. 设备挑战注册、凭据和出站 WebSocket 连接。
 5. Publication、目录、拒绝优先策略、审批和任务路由。
 6. Package、可选中继、联邦、保留、导出、备份恢复和真实 Desktop 端到端验证。
+7. `FR-14` Office 会话、对象存储、ONLYOFFICE、callback、checkpoint、策略、管理界面和三平台
+   Desktop 文档 Tab 端到端验证。
 
 当前尚未满足 PRD 的产品验收，也未进行真实 Desktop/ShareServer 集成测试。
 
 2026-09-05 PRD `FR-13` 新增组织数字人发布和 `@数字人` 调用。当前交互原型尚无“数字人”
 目录、发布管理、提及选择器或 Agent 记忆边界展示，因此这些能力仍属于剩余生产与原型工作，
 不能由现有通用能力目录或原型操作确认替代。
+2026-09-09 PRD `FR-14` 新增 Office 编辑服务；当前原型同样没有对应导航、配置或服务端路径。

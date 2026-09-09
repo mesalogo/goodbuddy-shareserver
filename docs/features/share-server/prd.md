@@ -5,8 +5,8 @@
 | 项目 | 内容 |
 | --- | --- |
 | 状态 | 设计中 |
-| 版本 | 0.2 |
-| 日期 | 2026-09-05 |
+| 版本 | 0.3 |
+| 日期 | 2026-09-09 |
 | 适用产品 | 独立部署的 ShareServer 与 Web 管理控制台 |
 | 关联架构 | [共享网络总体设计](../../../../goodbuddy/docs/architecture/share-network-architecture.md) |
 | 关联文档 | [功能逻辑](./logic-design.md)、[管理界面](./ui-design.md)、[技术设计](./technical-design.md) |
@@ -26,6 +26,7 @@
 5. 两个组织可经双边确认建立有限范围的联邦协作。
 6. ShareServer 可以只运行控制面，也可按部署策略提供数据中继和包存储。
 7. 成员可以显式开放自己的数字人，获准的组织成员可通过 `@数字人` 发起有界协作任务。
+8. 部署方可以启用 ONLYOFFICE Docs，使 Desktop 在多个文档 Tab 中编辑 DOCX、XLSX 和 PPTX。
 
 ## 3. 产品范围
 
@@ -39,6 +40,7 @@
 - 签名能力包仓库、发布通道、更新策略和撤销。
 - ShareServer 间双边联邦。
 - 组织数字人目录、数字人 Publication、授权发现和 `@数字人` 调用。
+- 可选 Office 编辑服务、工作副本、保存检查点、编辑器启动和 ONLYOFFICE callback。
 - 审计、用量、保留和导出。
 - Web 管理控制台和成员自助页面。
 
@@ -54,6 +56,8 @@
 - 自动信任同域邮箱、同一网络或其他 ShareServer。
 - 公共开放市场、计费结算或匿名能力调用。
 - 替代 GoodBuddy 官方客户端、模型和 Agent 发布源。
+- 自行实现 Office 渲染器，或把 ONLYOFFICE Document Server 打进 Desktop 安装包。
+- 默认永久保存用户文档、选区、提示词或模型输出。
 
 ## 4. 功能需求
 
@@ -176,6 +180,29 @@
 - 审计默认只记录调用方、数字人、Publication、provider、数据类别、路由、授权、状态、耗时
   和大小，不保存消息正文、附件内容、模型输出或记忆内容。
 
+### FR-14 Office 编辑服务
+
+- Office 编辑是可选服务能力。未配置或健康检查失败时，ShareServer 仍可运行其他控制面功能，
+  并向 Desktop 返回明确不可用原因。
+- 首期使用 ONLYOFFICE Docs Developer Edition，支持 DOCX、XLSX 和 PPTX。正式采用前必须完成
+  许可证、桌面集成、并发连接、白标、Automation API、私有部署和安全支持审核。
+- Desktop 使用设备身份创建 `DocumentEditSession`，上传经过大小、格式和 SHA-256 声明的工作
+  副本。ShareServer 不接收本机或 SSH 绝对路径，也不允许文件名决定对象存储路径。
+- ShareServer 为编辑器签发一次性启动授权，为 ONLYOFFICE 签发独立的短期文件和 callback
+  凭据；设备、编辑器和 callback audience 不能互换。
+- ONLYOFFICE 保存先形成不可变 `DocumentCheckpoint`。ShareServer 只宣称检查点可用，不宣称
+  Desktop 本地或 SSH 源文件已经回写成功。
+- 服务端保存组织、主体、会话、文档类型、大小、策略、编辑器版本、checkpoint 和清理审计；
+  默认不保存文档正文、选区正文、提示词或模型输出到普通日志和审计表。
+- 管理员可以配置允许格式、文件大小、并发、会话期限、checkpoint 保留、只读策略和 AI 编辑
+  开关。策略变化可以阻止新操作，不改写已经下载到 Desktop 的源文件。
+- ShareServer 托管固定版本的 GoodBuddy ONLYOFFICE 插件，用于有界选区、revision、编辑事务和
+  非正文状态事件。插件不能调用任意 ShareServer 管理 API、Electron IPC、宏或脚本执行入口。
+- Ask 只能取得 AI 修改建议；只有 Desktop 确认的 Execute 请求可以取得绑定单会话、revision
+  和选区的短期编辑授权。
+- 会话关闭、撤销或到期后停止新读取、保存和 AI 操作，并按组织保留策略清理工作副本、
+  checkpoint、Cookie 和对象令牌。
+
 ## 5. 产品验收
 
 - 新实例可完成初始化、登录、创建组织、邀请成员和注册真实桌面设备。
@@ -192,4 +219,9 @@
 - 数字人调用可以使用所有者在发布时勾选的 Agent、Global、指定 Project 或指定 Automation
   分区，但不能开放 Conversation 和 Run；ShareServer 和调用者不能读取原始记忆、未选择的
   本地分区或记忆来源正文。
+- 启用 Office 服务后，Windows、macOS 和 Linux Desktop 可从同一 ShareServer 分别打开、编辑
+  和保存 DOCX、XLSX、PPTX；多个会话不会串文件、选区、checkpoint 或权限。
+- 文件 URL、callback token 和编辑器启动授权过期或撤销后不可重用；保存失败、源文件冲突或
+  网络结果未知不会被 ShareServer 记录为源文件已保存。
+- Office 服务停用或故障不影响身份、设备、能力目录和其他任务控制面。
 - 备份恢复后组织、策略、发布和审计身份保持一致，短期连接和令牌不恢复。

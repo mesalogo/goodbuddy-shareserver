@@ -5,8 +5,8 @@
 | 项目 | 内容 |
 | --- | --- |
 | 状态 | 设计中 |
-| 版本 | 0.2 |
-| 日期 | 2026-09-05 |
+| 版本 | 0.3 |
+| 日期 | 2026-09-09 |
 | 关联 PRD | [ShareServer PRD](./prd.md) |
 | 共享规则 | [共享网络总体设计](../../../../goodbuddy/docs/architecture/share-network-architecture.md) |
 
@@ -60,6 +60,17 @@ ShareServer 只路由调用方冻结的 provider，不在离线、繁忙或失�
 和 Run 分区。ShareServer 和调用者只能看到允许分区种类与“本次调用会使用本地记忆”的政策
 事实，不能读取原始条目、分区内容、来源正文或检索结果。新增可读分区按权限扩大重新审批，
 移除分区可以立即收紧。
+
+### INV-11 服务端检查点不等于源文件已保存
+
+ONLYOFFICE 保存只产生 ShareServer 权威的 `DocumentCheckpoint`。只有 Desktop 或远程
+GoodBuddy Agent 校验源文件基准并完成原子替换后，源文件才是已保存状态。ShareServer 不根据
+callback 成功推断本机或 SSH 文件已经更新。
+
+### INV-12 Office 凭据单用途
+
+设备 API 凭据、编辑器一次性启动授权、ONLYOFFICE 文件令牌和 callback token 分别绑定不同
+audience、单个文档会话和短期限。任何一种凭据都不能换取其他 API 权限。
 
 ## 2. 主要状态
 
@@ -124,6 +135,27 @@ active <-> paused
 
 `mutually_confirmed` 只表示身份确认完成；双方策略同步成功后才进入 active。
 
+### 2.7 DocumentEditSession
+
+```text
+creating -> uploading -> ready -> editing
+creating/uploading -> failed | cancelled | expired
+ready/editing <-> offline
+ready/editing/offline -> closing -> closed
+任意非终态 -> revoked | expired
+```
+
+编辑内容使用独立状态维度：
+
+```text
+clean -> dirty -> saving -> checkpoint_available
+saving -> failed | outcome_unknown
+checkpoint_available -> dirty
+```
+
+`offline` 不删除已确认 checkpoint。`outcome_unknown` 必须通过对象摘要和 callback 幂等键查询
+同一次保存，不能自动创建另一份 checkpoint。
+
 ## 3. 授权计算顺序
 
 1. 验证请求身份、会话 audience 和 organization。
@@ -149,6 +181,7 @@ active <-> paused
 | 编辑策略 | 否 | 是 | 否 | 否 | 只读 | 否 |
 | 处理审批 | 否 | 可配置 | 否 | 授权范围 | 只读 | 自己的申请 |
 | 联邦关系 | 实例级许可 | 是 | 否 | 可共同审批 | 只读 | 否 |
+| Office 服务配置 | 是 | 策略与会话管理 | 否 | 可配置 | 只读 | 使用获准服务 |
 | 审计导出 | 实例级 | 组织级 | 自己相关 | 自己相关 | 授权范围 | 自己相关 |
 
 实际权限仍由策略计算，表格定义产品默认职责而非硬编码角色名称。
@@ -192,7 +225,20 @@ active <-> paused
 - 删除用户不删除其历史动作，审计显示不可变主体摘要。
 - 撤销设备、Publication、Grant、Package 或联邦后立即阻止新令牌。
 - 对象存储中的未完成任务正文按任务期限清理；审计元数据按组织保留策略清理。
+- Office 会话关闭、撤销或到期后停止签发新启动、文件和 callback 令牌。工作副本与 checkpoint
+  按 Office 保留策略清理；法定保留只能保留匹配对象和审计，不能恢复会话权限。
 - 法定保留只锁定匹配审计事件，不使被撤销身份重新可用。
+
+### 8.1 Office 保存与回写结果
+
+| 条件 | ShareServer 结果 |
+| --- | --- |
+| callback 通过验证且对象完整 | 原子发布新 checkpoint，通知 Desktop |
+| callback 重复且幂等键相同 | 返回已有 checkpoint，不创建新版本 |
+| callback 超时且对象结果未知 | `outcome_unknown`，查询确认后再转终态 |
+| Desktop 确认源文件已写回 | 记录 `source_commit_confirmed` 元数据 |
+| Desktop 报告源文件冲突 | 保留 checkpoint 至到期，记录 `source_conflict` |
+| 设备或组织权限撤销 | 拒绝新操作并关闭会话，不删除 Desktop 源文件 |
 
 ## 9. 需求追踪
 
@@ -211,9 +257,11 @@ active <-> paused
 | `FR-11` | 组织角色边界及各对象状态；展示行为由 UI 设计定义 |
 | `FR-12` | 短期权威恢复规则和逻辑完整性；部署结构由技术设计定义 |
 | `FR-13` | 注册、Publication、目录与授权不变量，provider 冻结及 `INV-10` |
+| `FR-14` | `INV-11`、`INV-12`、DocumentEditSession、Office 保存与保留规则 |
 
 ## 10. 逻辑完整性
 
-本设计覆盖实例、组织、成员、设备、能力与数字人发布、授权、审批、任务、更新、联邦、撤销
-和恢复。实现前仍需确定首个 OIDC 提供者矩阵、默认审计保留期、部署规模目标和中继带宽上限；这些部署
-参数应可配置，不改变拒绝优先、双边联邦和 provider 冻结规则。
+本设计覆盖实例、组织、成员、设备、能力与数字人发布、授权、审批、任务、更新、联邦、Office
+编辑、撤销和恢复。实现前仍需确定首个 OIDC 提供者矩阵、默认审计保留期、部署规模目标、中继
+带宽上限、Office 文件上限和 checkpoint 保留期；这些部署参数应可配置，不改变拒绝优先、双边
+联邦、provider 冻结、Office 凭据单用途和源文件权威规则。

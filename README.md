@@ -48,7 +48,11 @@ Prototype records are deliberately read-only fixtures. The action endpoint
 returns an acknowledgement but does not persist changes. PostgreSQL,
 initialization and login, organization isolation, real authorization, device
 WebSocket connections, task routing, relay, package storage, federation, and
-auditable mutations remain production implementation work.
+auditable mutations remain production implementation work. The planned Office
+editing integration also has no current implementation: ONLYOFFICE Docs,
+object storage, document sessions, save callbacks, checkpoints, and Desktop
+document tabs remain design work described in the
+[ShareServer feature documentation](docs/features/share-server/README.md).
 
 The readiness endpoint reports this explicitly:
 
