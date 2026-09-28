@@ -2,7 +2,7 @@
 
 ShareServer 是 GoodBuddy 设备共享网络的独立 Web 服务。它为一个或多个组织提供身份与设备
 目录、能力发布、授权策略、任务路由、可选数据中继、能力包更新、网关联邦、Office 编辑和
-审计管理。
+审计管理。目标范围还包括共享工作空间的实时消息、成员处理请求和资料同步。
 
 ShareServer 不属于 Electron Main，不负责桌面端局域网发现，也不自动取得设备上的能力、
 文件、凭据或 SSH Host。
@@ -12,6 +12,7 @@ ShareServer 不属于 Electron Main，不负责桌面端局域网发现，也不
 | 文档 | 权威职责 |
 | --- | --- |
 | [PRD](./prd.md) | 管理角色、产品范围、功能需求和验收 |
+| [用户故事](./user-stories.md) | 工作空间、实时消息、资料同步及数字分身处理的验收场景与逻辑审查 |
 | [功能逻辑](./logic-design.md) | 组织隔离、设备、发布、策略、任务和联邦状态规则 |
 | [管理界面设计](./ui-design.md) | ShareServer Web 控制台的信息架构与交互 |
 | [技术设计](./technical-design.md) | 服务模块、API、数据、部署、运维和验证 |
@@ -19,8 +20,8 @@ ShareServer 不属于 Electron Main，不负责桌面端局域网发现，也不
 | [共享网络总体设计](../../../../goodbuddy/docs/architecture/share-network-architecture.md) | 跨端身份、能力、授权、任务、更新和协议权威（GoodBuddy 仓库） |
 | [Desktop Office 协同编辑](../../../../goodbuddy/docs/features/office-document-editing/README.md) | 文档 Tab、源文件回写、冲突和 AI 选区编辑（GoodBuddy 仓库） |
 
-当前没有单独的 User Stories：管理员、能力发布者、审计员和普通成员场景已进入 PRD 与逻辑
-设计。仓库已建立可运行的全控制台交互原型；它用于确认信息架构与交互，不代表生产服务已经
+工作空间协作场景由用户故事追踪；管理员、能力发布者、审计员等既有场景继续由 PRD 与逻辑
+设计覆盖。仓库已建立可运行的全控制台交互原型；它用于确认信息架构与交互，不代表生产服务已经
 实现。当前边界和运行方法见[实施进度](./progress.md)与
 [`README.md`](../../../README.md)。跨仓库文档链接要求将 `goodbuddy` 与
 `goodbuddy-shareserver` 克隆到同一级目录；服务构建和运行不依赖桌面端仓库。
@@ -32,4 +33,4 @@ ShareServer 不属于 Electron Main，不负责桌面端局域网发现，也不
 - **能力发布者**：在获准范围内发布设备能力或签名能力包。
 - **审批人**：处理调用、发布、更新和联邦申请。
 - **审计员**：只读查看和导出获准范围内的审计事件。
-- **成员**：主要通过 GoodBuddy Desktop 使用能力，只在 Web 端处理个人设备和审批。
+- **成员**：主要通过 GoodBuddy Desktop 协作和使用能力；在 Web 端管理个人设备、授权、申请及自己发布的数字人。
