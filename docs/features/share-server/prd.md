@@ -184,8 +184,16 @@
 
 - Office 编辑是可选服务能力。未配置或健康检查失败时，ShareServer 仍可运行其他控制面功能，
   并向 Desktop 返回明确不可用原因。
-- 首期使用 ONLYOFFICE Docs Developer Edition，支持 DOCX、XLSX 和 PPTX。正式采用前必须完成
-  许可证、桌面集成、并发连接、白标、Automation API、私有部署和安全支持审核。
+- 首选 ONLYOFFICE Docs Developer Edition，目标支持 DOCX、XLSX 和 PPTX。正式采用前必须完成
+  实时编辑接口验证，并确认许可证、桌面集成、并发连接、白标、私有部署和安全支持范围与报价。
+  Automation API 为 Developer 版额外收费能力，不能从社区版容器部署成功推定已获授权；
+  插件替代路径需单独验证功能与授权条件。
+- 推荐部署方在服务器 Docker 中独立运行 Document Server，普通 Desktop 用户无需安装 Docker。
+  启用前验证文件下载、保存回调及中文字体；工作副本进入所选服务处理范围，集中部署不提供完全离线编辑。
+- Desktop 的右侧文档页签与 Agent 操作同一编辑会话，支持读取未保存的人工修改、原位应用、
+  修改定位与高亮、撤销重做；源文件回写仍以检查点为依据。客户端需求与选型验证以
+  [Office PRD](../../../../goodbuddy/docs/features/office-document-editing/prd.md) 的 `FR-6`、
+  `FR-13`、`FR-14` 为准。
 - Desktop 使用设备身份创建 `DocumentEditSession`，上传经过大小、格式和 SHA-256 声明的工作
   副本。ShareServer 不接收本机或 SSH 绝对路径，也不允许文件名决定对象存储路径。
 - ShareServer 为编辑器签发一次性启动授权，为 ONLYOFFICE 签发独立的短期文件和 callback
@@ -224,4 +232,6 @@
 - 文件 URL、callback token 和编辑器启动授权过期或撤销后不可重用；保存失败、源文件冲突或
   网络结果未知不会被 ShareServer 记录为源文件已保存。
 - Office 服务停用或故障不影响身份、设备、能力目录和其他任务控制面。
+- Agent 实时编辑按 [Office 用户故事](../../../../goodbuddy/docs/features/office-document-editing/user-stories.md)
+  的 `US-C1` 至 `US-C7` 验证；集中部署和选型按 `US-F1`、`US-F2` 验证，不以部署成功代替产品验收。
 - 备份恢复后组织、策略、发布和审计身份保持一致，短期连接和令牌不恢复。
