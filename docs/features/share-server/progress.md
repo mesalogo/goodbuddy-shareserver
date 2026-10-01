@@ -5,6 +5,18 @@
 ShareServer 包含控制台交互原型和可持久化的本地共享目录服务。GoodBuddy 已能注册设备、发布与
 撤销元数据，Web 能查看真实目录；生产身份、组织隔离、设备控制连接、授权及任务路由仍未实现。
 
+### 2026-10-01：Office 私有部署第一阶段设计
+
+- 本轮仅更新文档：PRD 限定可信私有网络的 DOCX 浏览器往返范围，逻辑设计定义编辑轮次与保存
+  状态，UI 设计补充真实试验入口，技术设计集中维护容器、地址、JWT、回调和本地文件提交契约。
+- 明确本阶段不以身份源、组织数据库、S3/MinIO 或独立 callback worker 为依赖；完整组织权限、
+  Desktop／Agent 和三格式能力仍属后续目标，不能从私有试验推定用户授权或组织隔离。
+- 当前 Compose 仍只有 ShareServer，使用宿主 `data/` bind mount，无 named volumes。
+  `docker/compose.office.yaml` 仅为拟议路径，镜像 edition／固定版本及协议兼容性待核验。
+- 未修改代码、容器或配置，未启动 ONLYOFFICE，也未验证真实上传、编辑、callback 或保存。
+  `git diff --check` 通过，已复核新增内部引用及阶段约束，并查阅官方 JWT／callback 文档；
+  未选定镜像版本，运行与端到端验证需在实现后完成。
+
 ### 2026-10-01：Web 与服务端目录整理
 
 - Web 源码与测试迁至 `web/src/`，HTML、Vite 和 Web TypeScript 配置置于 `web/`；
@@ -160,13 +172,15 @@ npm run build   # typecheck + Vite Web + server TypeScript passed
 
 按技术设计从以下纵向切片开始，不能把原型 fixture 逐步演变为权威状态：
 
+以下顺序用于组织生产服务；Office 私有部署第一阶段可按技术设计第 10.1 节独立推进，不等同于第 7 项交付。
+
 1. FR-1 一次性初始化、本地管理员身份、Web session 和 CSRF。
 2. PostgreSQL migration、实例/组织/成员表、强制 organization repository 作用域和事务审计。
 3. 真实组织与成员管理 API，再将对应原型页面切换到权威数据。
 4. 设备挑战注册、凭据和出站 WebSocket 连接。
 5. Publication、目录、拒绝优先策略、审批和任务路由。
 6. Package、可选中继、联邦、保留、导出、备份恢复和真实 Desktop 端到端验证。
-7. `FR-14` Office 会话、对象存储、ONLYOFFICE、callback、checkpoint、策略、管理界面和三平台
+7. `FR-14` Office 会话、所选持久存储、ONLYOFFICE、callback、checkpoint、策略、管理界面和三平台
    Desktop 文档 Tab 端到端验证。
 8. `FR-15` 至 `FR-18` 本地空间共享关联、资料定期／按需同步、实时消息、显式处理请求和共享来源授权；
    对照用户故事完成服务端契约与 Desktop 集成，不能把静态 demo 当作真实消息服务。

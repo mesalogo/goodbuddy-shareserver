@@ -11,6 +11,11 @@ ShareServer 是 GoodBuddy 设备共享网络的独立 Web 服务。它为一个�
 Office 区分服务端主存文档与显式的本地来源导入／回写模式。既有 Desktop 源文件、检查点和
 冲突契约用于后者；编辑会话结束不删除服务端主文档，检查点可用也不等于本地或 SSH 源文件已回写。
 
+Office 私有部署第一阶段仍待实现：先验证浏览器 DOCX 上传、编辑、保存与重新打开，默认本地
+文件存储，独立 Document Server 容器；范围见 [PRD](./prd.md#office-私有部署第一阶段待实现)，
+部署与协议以[技术设计第 10.1 节](./technical-design.md#101-私有部署第一阶段待实现)为准。
+拟议 `docker/compose.office.yaml` 尚不存在，现有 Compose 不包含 ONLYOFFICE。
+
 ShareServer 不属于 Electron Main，不负责桌面端局域网发现，也不自动取得设备上的能力、
 文件、凭据或 SSH Host。
 
