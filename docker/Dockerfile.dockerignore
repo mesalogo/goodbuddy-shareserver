@@ -3,3 +3,7 @@ dist
 node_modules
 *.log
 *.png
+.git
+data
+.env
+.env.*

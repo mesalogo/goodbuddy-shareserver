@@ -4,17 +4,20 @@ import {
   Building2,
   CircleUserRound,
   Cpu,
+  FileText,
   FileKey2,
   Gauge,
   GitFork,
   PackageCheck,
+  Network,
+  Send,
   ScrollText,
   Settings2,
   ShieldCheck,
   UserRoundCheck
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { PrototypeRole } from '../shared/prototype-data'
+import type { PrototypeRole } from '../../shared/prototype-data'
 
 export type PageConfig = {
   path: string
@@ -25,6 +28,7 @@ export type PageConfig = {
   icon: LucideIcon
   role: PrototypeRole | 'all'
   primaryAction?: string
+  group?: string
   tabs?: Array<{ label: string; dataKey: string }>
 }
 
@@ -32,9 +36,33 @@ export const pages: PageConfig[] = [
   {
     path: '/',
     title: '运行概览',
-    description: '需要行动的事项与当前 ShareServer 运行事实。',
+    description: 'GoodBuddy 组织服务、接入状态与待处理事项。',
     icon: Gauge,
     role: 'admin'
+  },
+  {
+    path: '/model-gateway',
+    title: '模型网关',
+    description: '接入上游模型服务，管理转发、访问策略和调用审计；ShareServer 不运行模型。',
+    icon: Network,
+    role: 'admin',
+    group: 'GoodBuddy 服务'
+  },
+  {
+    path: '/documents',
+    title: '文档与协作',
+    description: '文档存储在 ShareServer，在 GoodBuddy 中使用；管理归属、回收站和 OnlyOffice 服务。',
+    icon: FileText,
+    role: 'admin',
+    group: 'GoodBuddy 服务'
+  },
+  {
+    path: '/distribution',
+    title: '配置下发',
+    description: '向 GoodBuddy 分配网关模型配置，查看版本、生效情况与回滚结果。',
+    icon: Send,
+    role: 'admin',
+    group: 'GoodBuddy 服务'
   },
   {
     path: '/members',
@@ -52,8 +80,8 @@ export const pages: PageConfig[] = [
   },
   {
     path: '/devices',
-    title: '设备',
-    description: '查看已注册设备、连接状态与合规元数据。',
+    title: 'GoodBuddy 接入',
+    description: '管理 GoodBuddy 客户端与设备的注册、连接状态和接入授权。',
     dataKey: 'devices',
     icon: Cpu,
     role: 'admin',
@@ -61,8 +89,8 @@ export const pages: PageConfig[] = [
   },
   {
     path: '/capabilities',
-    title: '能力目录',
-    description: '查看显式发布的能力、版本和 Provider 可用性。',
+    title: '共享中心',
+    description: '按内容、发布用户或提供设备查看共享能力与知识库。',
     dataKey: 'capabilities',
     icon: Boxes,
     role: 'admin'
@@ -86,7 +114,7 @@ export const pages: PageConfig[] = [
   },
   {
     path: '/releases',
-    title: '发布与更新',
+    title: '资源与更新',
     description: '管理签名能力包、发布通道、更新策略和撤销。',
     dataKey: 'releases',
     icon: PackageCheck,
@@ -95,7 +123,7 @@ export const pages: PageConfig[] = [
   },
   {
     path: '/federation',
-    title: '网关联邦',
+    title: '网关互联',
     description: '管理经双边确认的组织协作边界。',
     dataKey: 'federation',
     icon: GitFork,
@@ -104,7 +132,7 @@ export const pages: PageConfig[] = [
   },
   {
     path: '/tasks',
-    title: '任务与中继',
+    title: '任务中心',
     description: '查看任务路由、终态和可选中继容量。',
     dataKey: 'tasks',
     icon: Activity,
@@ -112,7 +140,7 @@ export const pages: PageConfig[] = [
   },
   {
     path: '/audit',
-    title: '审计',
+    title: '操作审计',
     description: '按组织查询有界操作元数据，不包含任务正文。',
     dataKey: 'audit',
     icon: ScrollText,

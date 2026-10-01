@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import type { PrototypeSnapshot } from '../../shared/prototype-data'
+import type { PrototypeSnapshot } from '../../../shared/prototype-data'
 import { PageHeader } from './page-header'
 import { Button } from './ui/button'
 import { StatusBadge } from './ui/status-badge'

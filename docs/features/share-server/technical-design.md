@@ -19,11 +19,22 @@ ShareServer 在独立的 `goodbuddy-shareserver` 仓库根目录维护。当前�
 goodbuddy-shareserver/
   README.md
   package.json
-  server/                # Hono API 与同源静态资源服务
+  server/
+    src/                 # Hono API、测试与同源静态资源服务
+    tsconfig.json
   shared/                # 原型 fixture 与类型
-  src/                   # React Web 控制台
+  web/
+    src/                 # React Web 控制台与测试
+    index.html
+    vite.config.ts
+    tsconfig.json
+  vitest.config.ts        # Web 与 API 测试统一入口
+  tsconfig.json          # 引用 Web 与服务端配置
+  dist/                  # 生成产物，不提交
+    web/
+    server/
   docs/features/share-server/
-  Dockerfile
+  docker/                # Dockerfile、Compose 与构建忽略规则
 ```
 
 以下是后续生产实现的建议模块结构，尚未创建，不代表已实现：
@@ -32,7 +43,7 @@ goodbuddy-shareserver/
 goodbuddy-shareserver/
   README.md
   package.json
-  src/
+  server/src/
     api/
     auth/
     organizations/
@@ -52,9 +63,15 @@ goodbuddy-shareserver/
   tests/
 ```
 
-仓库根目录是可独立运行的全控制台交互原型。原型使用 Hono 提供健康、就绪、
-界面快照和无持久化操作确认 API，并同源托管 React/Vite Web 控制台；它不依赖 Electron 的
-`src/shared`。当前尚未建立生产数据库、认证、设备连接和共享协议，因此也不提前创建空的
+依赖与命令统一由根 `package.json` 管理，不拆分 workspace。Vite 输出到 `dist/web/`；
+服务端 TypeScript 以仓库根为 `rootDir`，输出到 `dist/server/`，因此启动入口为
+`dist/server/server/src/index.js`，共享模块位于 `dist/server/shared/`。根目录运行
+`npm start` 或容器启动后，Hono 同源托管 `dist/web/`。Docker 配置仍在 `docker/`，
+Compose 的 `../data` 仍映射仓库根 `data/` 到容器 `/app/data`。
+
+仓库根目录包含全控制台交互原型和本地共享目录服务。Hono 提供健康、就绪、
+界面快照、原型操作确认与真实元数据 API，并同源托管 React/Vite Web 控制台；它不依赖 Electron 的
+`src/shared`。本地目录使用 JSON 文件持久化，契约见第 4.1 节。当前尚未建立生产数据库、认证、设备控制连接，因此也不提前创建空的
 `packages/share-protocol`。进入真实 Desktop 协议实现时，服务端和 Desktop 共同依赖
 独立发布的 `share-protocol` 协议包，具体归属在真实协议实现时确定；
 ShareServer 仍不得导入 Electron 的 `src/shared`，也不得依赖相邻桌面仓库构建。
@@ -112,7 +129,48 @@ audience，并绑定单个 `DocumentEditSession`。
 所有请求经 schema、认证、organization scope、授权、速率和大小边界。列表使用游标分页和固定
 最大页；错误返回 request ID、稳定 code 和有界参数。
 
+### 4.1 本地共享目录契约（已实现）
+
+此接口供同机 GoodBuddy 与 Web Demo 联调，默认监听 `127.0.0.1:8787`。没有登录、组织隔离
+或设备认证；可访问接口的客户端均可修改目录。设备 ID 仅标识记录，客户端只显示本机撤销按钮
+不构成服务端所有权校验。`productionReady` 保持 `false`。上文 audience、组织授权及 WebSocket
+规则是后续组织服务目标，不由这些本地接口实现。
+
+| 方法与路径 | 输入 | 成功响应 |
+| --- | --- | --- |
+| `POST /api/v1/sharing/devices/register` | `id,name,platform,appVersion` | Device |
+| `GET /api/v1/sharing/devices` | 无 | `{devices: Device[]}` |
+| `GET /api/v1/sharing/publications` | 可选查询参数 `deviceId` | `{publications: Publication[]}` |
+| `POST /api/v1/sharing/publications` | PublicationInput | Publication |
+| `POST /api/v1/sharing/publications/:id/revoke` | 路径 ID | Publication |
+
+成功状态码为 200。Device 增加 `registeredAt,updatedAt`，均为服务端 ISO UTC 时间。
+PublicationInput 包含 `id,deviceId,name,kind,description,sourceMode,permissions`；
+`kind` 为 `capability|knowledge`，`sourceMode` 为 `device|server`，`permissions` 包含
+独立布尔字段 `search,read,download`。Publication 增加 `status: published|revoked` 及
+`createdAt,updatedAt`。来源和权限目前只保存声明，不传输正文、不执行授权或能力调用。
+源码类型见 `shared/sharing.ts`，状态规则见[本地目录逻辑](./logic-design.md#本地目录首期状态规则)。
+
+创建与注册要求 `application/json`，不接收额外字段。ID 长度 1–128，首位为 ASCII 字母或数字，
+其余允许字母、数字、点、下划线、连字符。名称最多 200 字符，平台与版本最多 64 字符，描述
+最多 4000 字符且可为空。请求体上限 32768 字节。
+
+错误响应为 `{code,message,requestId}`：输入或 JSON 无效返回 400，设备或条目不存在返回 404，
+发布 ID 内容冲突返回 409，超限返回 413，媒体类型错误返回 415，存储故障返回 503。
+未知 API 路径返回 JSON 404，不进入 SPA 回退。列表暂不分页，适用于本地小规模验证。
+
+`SHARESERVER_DATA_DIR` 指定数据目录，默认 `./data`；其中 `sharing.json` 保存设备和发布记录。
+每个目录只供一个进程中的一个 Store 使用。读写排队，写入临时文件并同步后 rename，写失败不更新
+内存。坏文件返回存储错误，不自动清空。服务重启重新加载文件；就绪接口不验证存储是否可写。
+生产组织服务仍计划使用 PostgreSQL，当前没有文件到 PostgreSQL 的迁移实现。
+
+GoodBuddy 通过 `页面 → preload → 可信 IPC → Main HTTP 服务` 调用，Main 保存稳定设备 ID、
+服务地址与设备名称，并设置请求超时。Web 同源读取目录，不保存桌面设备凭据。
+两仓独立构建；桌面实现与验证见[设备共享文档](../../../../goodbuddy/docs/features/device-sharing/README.md)。
+
 ## 5. 数据模型
+
+下列数据库模型属于组织服务目标设计。本地目录首期使用第 4.1 节的文件存储，不将本地设备 ID 当作组织身份。
 
 核心表建议为：
 
@@ -225,7 +283,15 @@ Release catalog 使用独立签名域。服务器不能重打包已签名 payloa
 
 ### 10.1 部署边界
 
-ShareServer 集成 ONLYOFFICE Docs Developer Edition，但不把 Document Server 代码并入 Hono
+文档以 ShareServer 为主存储，GoodBuddy 承担日常操作。个人创建者可删除或转移给组织，转移
+后删除按组织权限判断；管理元数据可见性不授予个人正文访问权。服务端主文档与编辑会话分开
+管理，主文档纳入备份及自身删除／保留规则，不随会话过期清理。
+
+第 10.2、10.3 节既有上传、检查点下载和 `source-commit` 契约描述显式的本地来源导入／回写
+模式，继续保留 Desktop／SSH 源文件基准校验和冲突处理。服务端主存模式不要求本地回写确认；
+其具体存取接口未在本次演示中实现，不由会话 API 推定已经具备文档持久化。
+
+目标设计集成 ONLYOFFICE Docs Developer Edition，但不把 Document Server 代码并入 Hono
 进程。生产部署使用独立容器和内部网络：
 
 ```text
@@ -281,6 +347,7 @@ ShareServer 负责中继有界事件，不持久化选区正文、Prompt 或模�
 ### 10.5 生命周期和清理
 
 - 会话、工作副本、checkpoint、启动 Cookie 和对象 token 分别设置明确期限。
+- 服务端主文档独立保留，清理临时会话对象不得连带删除主文档。
 - 关闭、撤销或到期立即拒绝新读取、保存和 AI 操作。
 - 清理使用对象标签和数据库状态，重复执行保持幂等，不根据用户文件名构造删除前缀。
 - 法定保留只能延长明确匹配的工作副本、checkpoint 或审计元数据，不能恢复访问授权。
@@ -334,7 +401,7 @@ Office 配置包括启用状态、Document Server 内部地址、公开编辑 or
 - 指标覆盖请求、WebSocket、授权结果、任务状态、中继、Package、Office 会话/callback 和联邦，
   不包含能力正文、文档正文或选区。
 - tracing 跨内部服务传播关联 ID，跨联邦只传播双方同意的关联标识。
-- 备份 PostgreSQL、Package 对象、策略要求保留的 Office checkpoint 和网关身份；不备份缓存、
+- 备份 PostgreSQL、服务端主文档、Package 对象、策略要求保留的 Office checkpoint 和网关身份；不备份缓存、
   Web session、nonce、Office 短期 token 或中继暂存。
 - 恢复后撤销列表、组织 ID、签名目录和审计序列保持有效，所有设备重新连接。
 
@@ -382,8 +449,30 @@ Office 配置包括启用状态、Document Server 内部地址、公开编辑 or
 `productionReady=false`。原型 fixture、角色切换和操作确认只用于评审信息架构，不得被
 Desktop 或部署脚本当作真实身份、策略、任务或审计 API。下一实施阶段必须从 FR-1
 初始化、本地身份、PostgreSQL 组织作用域和事务审计开始，不在 fixture 上叠加生产状态。
-当前原型没有 Office 导航、配置、会话 API、对象存储、ONLYOFFICE、callback 或 Desktop 文档
-Tab 集成；上述章节仅定义目标设计。
+当前 `/documents` 已有 OnlyOffice 实例配置与预设检查模拟；Office 会话 API、对象存储、
+ONLYOFFICE 编辑、callback、文档保存和 Desktop 文档 Tab 集成仍未实现。
+
+`web/src/app-config.ts` 将 `/model-gateway`、`/documents`、`/distribution` 放入管理员的
+“GoodBuddy 服务”分组。`web/src/components/services-demo.tsx` 使用 `ServicesDemo` 的 React
+Context 与 `useState` 共享演示状态，跨路由导航保留、刷新重置。服务演示操作不使用 Hono
+操作确认 API、不发网络请求、不写本地存储，也不保存凭据；页面角色与权限判断均为内存模拟。
+控制台启动仍通过既有快照 API 加载示例数据，此边界仅指三个服务页的模拟操作。
+
+模型网关只模拟上游／映射启用与用户组策略判断及最近 50 条有界调用审计；产品职责是转发
+其他模型服务，不托管模型或执行推理。文档仅保存示例名称、归属及回收站标记；转移清除个人
+删除权，组织删除／恢复依赖显式模拟角色，恢复保留归属。OnlyOffice 检查使用预设结果。
+
+配置演示保存单个草稿和按组发布历史，发布与回退均重新检查模型可用性；回退取上一条记录并
+移除当前末项，恢复版本及默认模型。仅目标组在线示例设备更新 `applied`，离线设备保持原值与
+待下发状态。这里没有设备连接、重连投递或持久化版本记录，不能作为真实配置交付证据。
+
+共享中心原型由 `web/src/components/sharing-center.tsx` 和 `web/src/lib/sharing-fixtures.ts` 提供。
+条目使用现有快照中的成员、设备 ID 建立关联，本地 fixture 仅含元数据和显式权限标记。
+既有 `/capabilities` 路由不变；查询参数 `view=catalog|knowledge|users|devices` 选择页签，
+`user`／`device` 定位主体，`item` 打开详情，`q`、`status=ready|unavailable`、
+`source=synced|remote`、`audience` 保存筛选。刷新恢复 URL 状态；内容链接保留筛选，
+跨主体链接清除旧条件，无效条目链接显示可关闭的错误详情。除启动快照外不新增 API 请求，
+不保存正文、不模拟下载；真实授权和同步仍属后续实现。
 
 ## 17. 工作空间协作的待实现契约
 

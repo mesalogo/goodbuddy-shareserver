@@ -6,12 +6,14 @@ import {
   Routes,
   useLocation
 } from 'react-router-dom'
-import type { PrototypeRole, PrototypeSnapshot } from '../shared/prototype-data'
+import type { PrototypeRole, PrototypeSnapshot } from '../../shared/prototype-data'
 import { pages, visiblePages } from './app-config'
 import { AppShell } from './components/app-shell'
 import { DataPage } from './components/data-page'
+import { SharingCenter } from './components/sharing-center'
 import { OverviewPage } from './components/overview-page'
 import { SettingsPage } from './components/settings-page'
+import { ServiceDemoPage, ServicesDemo } from './components/services-demo'
 import { Button } from './components/ui/button'
 
 async function loadSnapshot(): Promise<PrototypeSnapshot> {
@@ -58,10 +60,14 @@ function Console({
             element={
               page.path === '/' ? (
                 <OverviewPage snapshot={snapshot} />
-              ) : page.path === '/settings' ? (
+               ) : page.path === '/capabilities' ? (
+                 <SharingCenter snapshot={snapshot} />
+               ) : page.path === '/settings' ? (
                 <SettingsPage snapshot={snapshot} />
-              ) : (
-                <DataPage page={page} snapshot={snapshot} />
+               ) : ['/model-gateway', '/documents', '/distribution'].includes(page.path) ? (
+                 <ServiceDemoPage key={page.path} page={page} snapshot={snapshot} />
+               ) : (
+                 <DataPage key={page.path} page={page} snapshot={snapshot} />
               )
             }
           />
@@ -118,7 +124,9 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Console snapshot={snapshot} role={role} onRoleChange={setRole} />
+      <ServicesDemo>
+        <Console snapshot={snapshot} role={role} onRoleChange={setRole} />
+      </ServicesDemo>
     </BrowserRouter>
   )
 }

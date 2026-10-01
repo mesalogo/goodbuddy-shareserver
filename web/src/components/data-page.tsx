@@ -10,7 +10,8 @@ import {
   X
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import type { PrototypeRecord, PrototypeSnapshot } from '../../shared/prototype-data'
+import { Link } from 'react-router-dom'
+import type { PrototypeRecord, PrototypeSnapshot } from '../../../shared/prototype-data'
 import type { PageConfig } from '../app-config'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
@@ -61,6 +62,11 @@ function DetailPanel({
         ))}
       </dl>
       <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-white/[0.07] pt-5">
+        {page.path === '/devices' && (
+          <Link className="rounded-lg p-2 text-sm underline focus-visible:outline-2" to={`/capabilities?view=devices&device=${encodeURIComponent(record.id)}`}>
+            查看此设备的共享内容
+          </Link>
+        )}
         {page.path === '/approvals' ? (
           <>
             <Button variant="danger" onClick={() => onAction('拒绝申请', record)}>

@@ -10,7 +10,7 @@ import {
   Sparkles
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import type { Metric, PrototypeSnapshot } from '../../shared/prototype-data'
+import type { Metric, PrototypeSnapshot } from '../../../shared/prototype-data'
 import { PageHeader } from './page-header'
 import { StatusBadge } from './ui/status-badge'
 
@@ -53,14 +53,26 @@ export function OverviewPage({ snapshot }: { snapshot: PrototypeSnapshot }) {
       <PageHeader
         eyebrow={`实例 · ${snapshot.instance.region}`}
         title="运行概览"
-        description={`${snapshot.instance.name} 正在为组织 ${snapshot.instance.organization} 提供控制面服务。`}
+        description={`用户在 GoodBuddy 中工作，${snapshot.instance.name} 为 ${snapshot.instance.organization} 管理服务与组织资源。`}
         action={
           <div className="flex items-center gap-2 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.06] px-3 py-2 text-xs text-emerald-200">
             <span className="size-1.5 rounded-full bg-emerald-300 shadow-[0_0_10px_rgba(52,211,153,.9)]" />
-            所有核心服务正常
+            交互原型 · 示例数据
           </div>
         }
       />
+
+      <section aria-label="GoodBuddy 联动服务" className="mb-6 grid gap-4 md:grid-cols-3">
+        {[
+          { path: '/model-gateway', title: '模型网关', flow: 'GoodBuddy → ShareServer → 上游模型', copy: '管理模型转发和授权，演示允许或拒绝调用及审计记录。' },
+          { path: '/documents', title: '文档与协作', flow: 'GoodBuddy → 服务端文档 → OnlyOffice', copy: '管理文档归属与编辑服务，演示个人文档转交组织及回收恢复。' },
+          { path: '/distribution', title: '配置下发', flow: '组织配置 → GoodBuddy → 生效回执', copy: '选择网关模型、发布配置，演示在线生效、离线等待和版本回滚。' }
+        ].map((service) => <button key={service.path} onClick={() => navigate(service.path)} className="rounded-2xl border border-white/10 bg-[var(--panel)] p-5 text-left outline-none transition hover:bg-[var(--control)] focus-visible:ring-2 focus-visible:ring-cyan-400/70">
+          <span className="flex items-center justify-between gap-2 font-semibold text-[var(--text-strong)]">{service.title}<ArrowUpRight className="size-4" /></span>
+          <span className="mt-3 block text-xs leading-5 text-[var(--text-primary)]">{service.flow}</span>
+          <span className="mt-2 block text-sm leading-6 text-[var(--text-muted)]">{service.copy}</span>
+        </button>)}
+      </section>
 
       <section aria-label="关键指标" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {snapshot.metrics.map((metric) => (
@@ -118,7 +130,7 @@ export function OverviewPage({ snapshot }: { snapshot: PrototypeSnapshot }) {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold text-[var(--text-strong)]">网络脉冲</h2>
-              <p className="mt-1 text-xs text-[var(--text-muted)]">连接与路由实时摘要</p>
+              <p className="mt-1 text-xs text-[var(--text-muted)]">连接与路由示例摘要</p>
             </div>
             <RadioTower className="size-5 text-cyan-300" />
           </div>

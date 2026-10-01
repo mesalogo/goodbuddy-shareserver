@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import type { PrototypeRole, PrototypeSnapshot } from '../../shared/prototype-data'
+import type { PrototypeRole, PrototypeSnapshot } from '../../../shared/prototype-data'
 import { visiblePages } from '../app-config'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
@@ -41,7 +41,10 @@ export function AppShell({
   const [searchOpen, setSearchOpen] = useState(false)
   const [dark, setDark] = useState(true)
   const navigate = useNavigate()
-  const navigation = visiblePages(role)
+  const navigation = visiblePages(role).map((page) => ({
+    ...page,
+    group: page.group ?? (role === 'member' ? '成员自助' : page.path === '/' ? '概览' : '组织与运维')
+  }))
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light'
@@ -67,7 +70,7 @@ export function AppShell({
             {snapshot.instance.name}
           </p>
           <p className="truncate text-[11px] uppercase tracking-[0.16em] text-cyan-300/70">
-            Control plane
+            GoodBuddy 组织服务
           </p>
         </div>
       </div>
@@ -90,11 +93,12 @@ export function AppShell({
           {role === 'admin' ? '组织控制台' : '成员自助'}
         </p>
         <div className="space-y-1">
-          {navigation.map((item) => {
-            const Icon = item.icon
-            return (
-              <NavLink
-                key={item.path}
+          {navigation.map((item, index) => {
+             const Icon = item.icon
+             return (
+               <div key={item.path}>
+               {index > 0 && item.group !== navigation[index - 1].group ? <p className="px-3 pb-2 pt-4 text-[11px] font-medium text-slate-500">{item.group}</p> : null}
+               <NavLink
                 to={item.path}
                 end={item.path === '/'}
                 onClick={() => setMobileOpen(false)}
@@ -121,7 +125,8 @@ export function AppShell({
                     ) : null}
                   </>
                 )}
-              </NavLink>
+               </NavLink>
+               </div>
             )
           })}
         </div>
@@ -193,7 +198,7 @@ export function AppShell({
             <Menu className="size-5" />
           </Button>
           <button
-            className="flex h-9 max-w-md flex-1 items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.035] px-3 text-left text-sm text-slate-500 outline-none transition hover:border-white/[0.15] hover:bg-white/[0.055] focus-visible:ring-2 focus-visible:ring-cyan-400/70 sm:flex-initial sm:basis-[360px]"
+            className="flex h-9 min-w-0 max-w-md flex-1 items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.035] px-3 text-left text-sm text-slate-500 outline-none transition hover:border-white/[0.15] hover:bg-white/[0.055] focus-visible:ring-2 focus-visible:ring-cyan-400/70 sm:flex-initial sm:basis-[360px]"
             onClick={() => setSearchOpen(true)}
           >
             <Search aria-hidden="true" className="size-4" />
@@ -205,7 +210,7 @@ export function AppShell({
           <div className="ml-auto flex items-center gap-1">
             <span className="mr-2 hidden items-center gap-2 text-xs text-slate-500 xl:flex">
               <span className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,.8)]" />
-              控制面正常
+              交互演示 · 非实时数据
             </span>
             <Button
               aria-label={dark ? '切换到浅色主题' : '切换到深色主题'}

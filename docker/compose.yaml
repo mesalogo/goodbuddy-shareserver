@@ -1,0 +1,16 @@
+name: goodbuddy-shareserver
+
+services:
+  shareserver:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8787:8787"
+    volumes:
+      - type: bind
+        source: ../data
+        target: /app/data
+        bind:
+          create_host_path: false
+    restart: unless-stopped

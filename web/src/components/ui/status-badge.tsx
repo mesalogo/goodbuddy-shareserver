@@ -1,5 +1,5 @@
 import { CircleCheck, CircleMinus, CircleX, Clock3, Radio } from 'lucide-react'
-import type { PrototypeRecord } from '../../../shared/prototype-data'
+import type { PrototypeRecord } from '../../../../shared/prototype-data'
 import { cn } from '../../lib/utils'
 
 const styles: Record<PrototypeRecord['statusTone'], string> = {
