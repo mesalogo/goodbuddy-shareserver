@@ -1,7 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { prototypeSnapshot } from '../../../shared/prototype-data'
 import type { Device, Publication } from '../../../shared/sharing'
 import { SharingCenter } from './sharing-center'
 
@@ -22,7 +21,7 @@ function mockDirectory(deviceRows = devices, publicationRows = publications) {
     throw new Error(`Unexpected request: ${url}`)
   })
 }
-function mount() { return render(<BrowserRouter><SharingCenter snapshot={prototypeSnapshot} /></BrowserRouter>) }
+function mount() { return render(<BrowserRouter><SharingCenter /></BrowserRouter>) }
 
 describe('local sharing directory', () => {
   beforeEach(() => {
@@ -45,7 +44,8 @@ describe('local sharing directory', () => {
     for (const text of ['已撤销', '预算说明', '搜索：声明允许', '读取原文：未声明允许', '下载：声明允许']) expect(within(revoked).getByText(text)).toBeInTheDocument()
     expect(within(revoked).getByText(/来源声明：服务器/)).toBeInTheDocument()
     expect(screen.queryByText(/当前示例访问者/)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /发布|登记|下载/ })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '撤销发布' })).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: /^(发布|登记|下载)/ })).not.toBeInTheDocument()
   })
 
   it('combines device, kind, search and status filters, restores URL state and clears no results', async () => {
@@ -102,22 +102,16 @@ describe('local sharing directory', () => {
     expect(await screen.findByRole('heading', { name: '本机工作站' })).toBeInTheDocument()
   })
 
-  it('keeps fixture tabs separate and aborts pending local loads when leaving', async () => {
+  it('ignores obsolete fixture links and aborts pending loads when leaving', () => {
     const signals: AbortSignal[] = []
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_url, { signal }) => { signals.push(signal); return new Promise(() => {}) }))
     window.history.replaceState({}, '', '/capabilities?view=local&item=k-1')
-    mount()
+    const app = mount()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('tab', { name: '共享知识库' }))
+    expect(screen.getAllByRole('tab')).toHaveLength(4)
+    expect(screen.queryByRole('link', { name: '设计规范归档' })).not.toBeInTheDocument()
+    app.unmount()
     expect(signals).toHaveLength(2)
     expect(signals.every((signal) => signal.aborted)).toBe(true)
-    expect(screen.getByRole('link', { name: '设计规范归档' })).toBeInTheDocument()
-    expect(screen.queryByText(/此页读取当前服务/)).not.toBeInTheDocument()
-    vi.stubGlobal('fetch', mockDirectory())
-    fireEvent.keyDown(screen.getByRole('tab', { name: '共享知识库' }), { key: 'Home' })
-    expect(screen.getByRole('tab', { name: '本地服务目录' })).toHaveFocus()
-    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'sharing-tab-local')
-    await screen.findByRole('heading', { name: '本地分析能力' })
-    expect(screen.queryByRole('link', { name: '设计规范归档' })).not.toBeInTheDocument()
   })
 })

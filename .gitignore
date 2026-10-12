@@ -3,3 +3,5 @@ dist/
 node_modules/
 *.png
 data/
+.env*
+/docs/references/

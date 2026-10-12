@@ -7,8 +7,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createApp } from './app.js'
+import { createApp as createUnboundApp } from './app.js'
+import { withLocalSocket } from './test-socket.js'
 import { SharingStore } from './sharing-store.js'
+
+const createApp = (...args: Parameters<typeof createUnboundApp>) => withLocalSocket(createUnboundApp(...args))
 
 const device = { id: 'desktop-1', name: 'Local desktop', platform: 'win32', appVersion: '1.0.0' }
 const publication = {

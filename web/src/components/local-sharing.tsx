@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Device, Publication } from '../../../shared/sharing'
+import { sharingRequest } from '../lib/sharing-api'
 import { Button } from './ui/button'
 import { StatusBadge } from './ui/status-badge'
 
@@ -14,6 +15,8 @@ export function LocalSharing() {
   const [params, setParams] = useSearchParams()
   const [attempt, setAttempt] = useState(0)
   const [state, setState] = useState<LoadState>({ status: 'loading' })
+  const [pending, setPending] = useState('')
+  const [actionError, setActionError] = useState('')
   const deviceId = params.get('device') ?? ''
   const kind = params.get('kind') ?? ''
   const status = params.get('status') ?? ''
@@ -21,17 +24,9 @@ export function LocalSharing() {
 
   useEffect(() => {
     const controller = new AbortController()
-    async function load<T>(resource: string, label: string): Promise<T> {
-      const response = await fetch(`/api/v1/sharing/${resource}`, { signal: controller.signal })
-      if (!response.ok) {
-        const error = await response.json().catch(() => null)
-        throw new Error(`${label}加载失败（HTTP ${response.status}）${typeof error?.code === 'string' ? ` · ${error.code}` : ''}${typeof error?.requestId === 'string' ? ` · 请求 ID：${error.requestId}` : ''}`)
-      }
-      return response.json() as Promise<T>
-    }
     Promise.all([
-      load<Pick<Directory, 'devices'>>('devices', '设备'),
-      load<Pick<Directory, 'publications'>>('publications', '发布记录')
+      sharingRequest<Pick<Directory, 'devices'>>('/devices', controller.signal),
+      sharingRequest<Pick<Directory, 'publications'>>('/publications', controller.signal)
     ]).then(([devices, publications]) => {
       if (!controller.signal.aborted) setState({ status: 'loaded', data: { ...devices, ...publications } })
     }).catch((error: unknown) => {
@@ -48,11 +43,26 @@ export function LocalSharing() {
     setParams(next, { replace: true })
   }
 
+  async function revoke(publication: Publication) {
+    if (publication.status !== 'published' || pending || !window.confirm(`撤销“${publication.name}”？撤销后会保留记录，但不能继续作为已发布内容使用。`)) return
+    setPending(publication.id)
+    setActionError('')
+    try {
+      await sharingRequest(`/publications/${encodeURIComponent(publication.id)}/revoke`, undefined, 'POST')
+      reload()
+    } catch (error) {
+      setActionError(`撤销失败：${error instanceof Error ? error.message : '网络请求失败'}`)
+    } finally {
+      setPending('')
+    }
+  }
+
   return <>
     <div className={panel}>
-      <p className={muted}>此页读取当前服务的真实设备和发布元数据，与其他页签的模拟用户、组织数据独立。请在 GoodBuddy 应用中心登记设备、发布或撤销共享内容，再刷新此目录。</p>
+      <p className={muted}>此页读取当前服务的设备和发布元数据。请在 GoodBuddy 应用中心登记设备、发布或撤销共享内容，再刷新此目录。</p>
       <p className={muted}>登记不代表设备在线；已发布不代表可以调用。来源模式仅为声明，服务器未同步正文。知识权限分别记录声明，尚未执行授权校验；此页不搜索正文、读取原文、下载文件或调用能力。</p>
       <Button variant="secondary" disabled={state.status === 'loading'} onClick={reload}>刷新目录</Button>
+      {actionError && <p role="alert" className="text-sm text-rose-300">{actionError}</p>}
     </div>
     {state.status === 'loading' && <p role="status" className={muted}>正在加载本地服务目录…</p>}
     {state.status === 'error' && <div className={panel}>
@@ -90,8 +100,9 @@ export function LocalSharing() {
           <p className={muted}>发布标识：{item.id} · 设备标识：{item.deviceId}</p>
           <p className={muted}>来源声明：{item.sourceMode === 'server' ? '服务器' : '设备'}（仅描述来源，不代表内容已同步或可取用）</p>
           <p className={muted}>发布时间：<time dateTime={item.createdAt}>{item.createdAt}</time> · 更新时间：<time dateTime={item.updatedAt}>{item.updatedAt}</time></p>
-          {item.kind === 'knowledge' && <div className="space-y-2"><h3 className="text-sm font-semibold">知识权限声明（各自独立，未执行授权校验）</h3><div className="flex flex-wrap gap-3 text-sm"><span>搜索：{item.permissions.search ? '声明允许' : '未声明允许'}</span><span>读取原文：{item.permissions.read ? '声明允许' : '未声明允许'}</span><span>下载：{item.permissions.download ? '声明允许' : '未声明允许'}</span></div></div>}
-        </article>)}
+           {item.kind === 'knowledge' && <div className="space-y-2"><h3 className="text-sm font-semibold">知识权限声明（各自独立，未执行授权校验）</h3><div className="flex flex-wrap gap-3 text-sm"><span>搜索：{item.permissions.search ? '声明允许' : '未声明允许'}</span><span>读取原文：{item.permissions.read ? '声明允许' : '未声明允许'}</span><span>下载：{item.permissions.download ? '声明允许' : '未声明允许'}</span></div></div>}
+           {item.status === 'published' && <Button variant="danger" size="sm" disabled={Boolean(pending)} onClick={() => void revoke(item)}>{pending === item.id ? '撤销中…' : '撤销发布'}</Button>}
+         </article>)}
       </>
     })()}
   </>

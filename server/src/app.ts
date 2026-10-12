@@ -5,11 +5,19 @@ import { secureHeaders } from 'hono/secure-headers'
 import { prototypeSnapshot } from '../../shared/prototype-data.js'
 import { sharingRoutes } from './sharing-routes.js'
 import { SharingStore } from './sharing-store.js'
+import { GatewayStore } from './gateway-store.js'
+import { gatewayRoutes } from './gateway-routes.js'
+import { localAdmin, type SocketBindings } from './admin-boundary.js'
 
-export function createApp(store = new SharingStore()) {
-  const app = new Hono()
+export function createApp(store = new SharingStore(), gateway = new GatewayStore()) {
+  const app = new Hono<{ Bindings: SocketBindings }>()
 
   app.use('*', logger())
+  app.use('/api/*', async (c, next) => {
+    if (c.req.path.startsWith('/api/v1/gateway/') || (c.req.method === 'GET' && ['/api/v1/public/health', '/api/v1/public/ready'].includes(c.req.path))) await next()
+    else return localAdmin(c, next)
+  })
+  app.use('/api', localAdmin)
   app.use(
     '*',
     secureHeaders({
@@ -37,6 +45,16 @@ export function createApp(store = new SharingStore()) {
       status: 'ready',
       mode: 'interactive-prototype',
       productionReady: false,
+      gateway: {
+        mode: 'local-openai-compatible',
+        authentication: 'scoped-bearer-key',
+        persistence: 'local-json',
+        credentials: 'aes-256-gcm-and-legacy-environment-references',
+        writerScope: 'single-process-single-store-per-data-directory',
+        networkBoundary: 'direct-loopback-admin-authenticated-inference',
+        organizationAclEnforced: false,
+        storageChecked: false
+      },
       sharing: {
         mode: 'local-metadata-only',
         authentication: 'none',
@@ -83,6 +101,7 @@ export function createApp(store = new SharingStore()) {
   })
 
   app.route('/api/v1/sharing', sharingRoutes(store))
+  app.route('/api/v1/gateway', gatewayRoutes(gateway))
 
   app.all('/api/*', (context) => context.json({
     code: 'NOT_FOUND', message: 'API route not found.', requestId: crypto.randomUUID()

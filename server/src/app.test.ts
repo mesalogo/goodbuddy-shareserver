@@ -1,6 +1,9 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { app } from './app.js'
+import { createApp } from './app.js'
+import { withLocalSocket } from './test-socket.js'
+
+const app = withLocalSocket(createApp())
 
 describe('ShareServer prototype API', () => {
   it('reports prototype readiness without claiming production readiness', async () => {

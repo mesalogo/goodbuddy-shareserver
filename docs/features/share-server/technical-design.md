@@ -11,6 +11,10 @@
 | 功能逻辑 | [功能逻辑设计](./logic-design.md) |
 | 共享协议 | [共享网络总体设计](../../../../goodbuddy/docs/architecture/share-network-architecture.md) |
 
+基于 GoodBuddy 当前源码的适配依据、正常网关接入和基础服务实施顺序见
+[后端基础设计](./backend-foundation-design.md)。B1 已实现、验收部分完成，B2 至 B6 待实现；第 4.1、4.2 节记录
+当前已实现 API，组织与 Office 章节仍是目标设计，不代表现有菜单已有对应服务。
+
 ## 1. 仓库与运行边界
 
 ShareServer 在独立的 `goodbuddy-shareserver` 仓库根目录维护。当前可运行结构为：
@@ -22,7 +26,7 @@ goodbuddy-shareserver/
   server/
     src/                 # Hono API、测试与同源静态资源服务
     tsconfig.json
-  shared/                # 原型 fixture 与类型
+  shared/                # 共享目录、网关 DTO 与保留的旧原型类型
   web/
     src/                 # React Web 控制台与测试
     index.html
@@ -69,9 +73,9 @@ goodbuddy-shareserver/
 `npm start` 或容器启动后，Hono 同源托管 `dist/web/`。Docker 配置仍在 `docker/`，
 Compose 的 `../data` 仍映射仓库根 `data/` 到容器 `/app/data`。
 
-仓库根目录包含全控制台交互原型和本地共享目录服务。Hono 提供健康、就绪、
-界面快照、原型操作确认与真实元数据 API，并同源托管 React/Vite Web 控制台；它不依赖 Electron 的
-`src/shared`。本地目录使用 JSON 文件持久化，契约见第 4.1 节。当前尚未建立生产数据库、认证、设备控制连接，因此也不提前创建空的
+仓库根目录包含控制台交互原型、本地共享目录和模型网关。Hono 提供健康、就绪、
+界面快照、原型操作确认、真实元数据 API 和网关转发，并同源托管 React/Vite Web 控制台；它不依赖 Electron 的
+`src/shared`。本地目录与网关使用独立 JSON 文件持久化，契约见第 4.1、4.2 节。当前尚未建立生产数据库、组织认证、设备控制连接，因此也不提前创建空的
 `packages/share-protocol`。进入真实 Desktop 协议实现时，服务端和 Desktop 共同依赖
 独立发布的 `share-protocol` 协议包，具体归属在真实协议实现时确定；
 ShareServer 仍不得导入 Electron 的 `src/shared`，也不得依赖相邻桌面仓库构建。
@@ -79,9 +83,9 @@ ShareServer 仍不得导入 Electron 的 `src/shared`，也不得依赖相邻桌
 ## 2. 技术选型约束
 
 本节及下文组织身份、数据库事务、Web session 安全与生产部署要求属于完整组织服务目标。
-本地目录按第 4.1 节实现；Office 私有部署第一阶段按第 10.1 节单独推进，不以前述能力为前置条件。
+本地目录和网关按第 4.1、4.2 节实现；Office 私有部署第一阶段按第 10.1 节单独推进，不以前述能力为前置条件。
 
-- 使用与仓库一致的 TypeScript/Node.js 工具链，具体 HTTP 框架在实现前根据维护性选择。
+- 使用与仓库一致的 TypeScript/Node.js 工具链，沿用当前 Hono 框架。
 - PostgreSQL 是组织、策略、任务元数据和审计的权威数据库；工作空间消息、处理状态及可靠投递记录
   也以数据库为准，具体业务表与受控正文存储在协作模块实现时增加。
 - 完整组织服务计划使用 S3 兼容对象存储保存 Package、可选中继暂存和 Office 工作副本。
@@ -135,7 +139,7 @@ audience，并绑定单个 `DocumentEditSession`。
 ### 4.1 本地共享目录契约（已实现）
 
 此接口供同机 GoodBuddy 与 Web Demo 联调，默认监听 `127.0.0.1:8787`。没有登录、组织隔离
-或设备认证；可访问接口的客户端均可修改目录。设备 ID 仅标识记录，客户端只显示本机撤销按钮
+或设备认证；B1 起只允许直连回环管理请求，符合此限制的客户端均可修改目录。设备 ID 仅标识记录，客户端只显示本机撤销按钮
 不构成服务端所有权校验。`productionReady` 保持 `false`。上文 audience、组织授权及 WebSocket
 规则是后续组织服务目标，不由这些本地接口实现。
 
@@ -171,9 +175,110 @@ GoodBuddy 通过 `页面 → preload → 可信 IPC → Main HTTP 服务` 调用
 服务地址与设备名称，并设置请求超时。Web 同源读取目录，不保存桌面设备凭据。
 两仓独立构建；桌面实现与验证见[设备共享文档](../../../../goodbuddy/docs/features/device-sharing/README.md)。
 
+### 4.2 本地模型网关契约（已实现）
+
+实现位于 `server/src/gateway-routes.ts`、`gateway-store.ts` 和 `shared/gateway.ts`，挂载到
+`/api/v1/gateway`。B1 已实现本机管理、托管凭据和按模型授权的 Bearer 访问 Key，没有组织隔离、
+用户组策略、配额或速率／并发控制。客户端 Key 不转发给上游。就绪接口报告网关边界，保持
+`productionReady=false`、`storageChecked=false`。网关独立构建运行，不导入 GoodBuddy 源码。
+
+下表路径均相对于 `/api/v1/gateway`，成功返回 200：
+
+| 方法与路径 | 输入与行为 | 响应 |
+| --- | --- | --- |
+| `GET /config` | 读取配置、调用元数据和部署指定地址 | `{upstreams,models,audits,gatewayBaseUrl}` |
+| `POST /upstreams`、`PUT /upstreams/:id` | `name,baseUrl,protocol,authentication,enabled,credentialAction`；仅 `replace` 带 `apiKey` | 上游公开字段及 `credentialConfigured`，无秘密或密文 |
+| `POST /models`、`PUT /models/:id` | `alias,upstreamId,remoteModel,enabled`，可选 `displayName` | 模型映射 |
+| `GET /access-keys` | 列出 Key 元数据 | `{accessKeys}`，不含摘要或原文 |
+| `POST /access-keys` | `{name,modelIds}`，至少一个不重复的模型记录 ID | `{accessKey,key}`，完整 Key 仅此次返回 |
+| `POST /access-keys/:id/revoke` | 撤销 Key | Key 元数据，重复撤销保留原 `revokedAt` |
+| `POST /upstreams/:id/discover` | 无请求体；向已启用上游的 `/models` 发 GET | 去重模型 ID 列表 `{models: string[]}`，不自动保存映射 |
+| `POST /test` | 本机管理测试，使用 Chat 字段，仅非流式 | 真实 JSON 响应，复用转发和审计，`accessKeyId=null` |
+| `GET /v1/models` | Bearer Key；仅列授权、启用且上游启用、凭据可用的模型 | OpenAI 模型列表，模型 ID 为别名 |
+| `POST /v1/chat/completions` | Bearer Key 与模型授权；按别名转发 | JSON 或 SSE，响应 `model` 改回别名 |
+
+除两个 `/v1` 客户端端点外，网关管理和旧共享目录 API 均通过 `admin-boundary.ts` 校验实际
+`incoming.socket.remoteAddress`，只接受 `::1`、`127.*` IPv4 及其 IPv4-mapped 地址；没有 socket
+信息也拒绝。含 `Forwarded`、`X-Forwarded-*` 或 `X-Real-IP` 的管理请求返回 403，不采信其来源声明。
+Origin 允许无值、同源、`http://127.0.0.1:5174` 和 `http://localhost:5174`；来源不符同样拒绝。
+Vite 在代理前对所有 `/api` 请求检查原始 socket，仅限回环。容器和任意反向代理管理不受支持，
+须等待 B2 登录；无转发头的本机代理不能被当作管理员身份。健康与就绪 GET 不受管理限制。
+
+Key 使用 `ss_` 加 32 个随机字节的 base64url 编码，存储 SHA-256 摘要。`modelIds` 绑定映射
+记录的 UUID，修改别名不改变授权。Key 名称不代表用户身份；缺失、格式错误、未知或已撤销的 Key
+返回 401，未授权或不存在的请求模型返回 403。撤销阻止后续请求，不主动终止已经开始的流。
+
+客户端 Base URL 为 `http://127.0.0.1:8787/api/v1/gateway/v1`。仅支持上述模型列表与 Chat
+Completions，不实现 Responses、Anthropic 或其他推理端点，不执行工具。Chat 顶层字段采用
+`CHAT_FIELDS` 白名单，包含消息、流式选项、采样参数、`tools/tool_choice/parallel_tool_calls`、
+兼容的 `functions/function_call`、`response_format`、`reasoning_effort` 等；未知字段及地址／凭据
+覆盖报错。消息角色允许 `system/developer/user/assistant/tool/function`；具体参数语义由上游处理，
+不保证每个上游支持全部字段。工具调用数据和 usage 随响应透传。
+
+配置输入严格匹配字段。名称、显示名和远端模型名最多 200 字符，新建或改名的别名最多 128 字符；
+已有最长 200 字符的别名可继续使用和原名编辑，接入 GoodBuddy 前需显式改为其支持的长度。
+别名以 ASCII 字母或数字开头，其余可含字母、数字、点、下划线、冒号、斜杠和连字符。
+上游、模型记录和 Key ID 为服务端生成的 UUID v4。Base URL 最多 2048 字符，允许 HTTP/HTTPS
+及合法路径，去掉尾斜杠，禁止用户信息、查询和片段；请求不跟随重定向。支持可信内网 HTTP
+上游，但 HTTP 不加密传输凭据，对外部署使用 HTTPS；该校验不构成生产出站访问策略。
+
+`protocol` 仅支持 `openai-chat-completions`，`authentication=api-key|none`。
+`credentialAction=keep|replace|clear` 显式保留、替换或清除凭据；空输入不代表清除，选择 `none`
+不自动删除已有凭据。替换时 `apiKey` 最多 16384 字符，使用 AES-256-GCM、随机 nonce、认证标签，
+并以稳定上游 ID 作为 AAD；密文随上游一起原子保存。`credentialConfigured` 只反映密文或有效
+环境引用是否存在，不保证解密或连接成功。
+
+`SHARESERVER_MASTER_KEY_FILE` 指向数据目录外的秘密文件，也可用 `SHARESERVER_MASTER_KEY`
+提供 64 位十六进制主密钥，两者不能同时设置。文件路径及真实路径均须在数据目录外。
+初始化命令为 `npm run gateway:init-key -- <文件路径>`，父目录须已存在，拒绝覆盖已有文件；
+Windows 可运行示例见根 README。主密钥与普通数据分开备份；缺失、错误或无法解密时返回
+`CREDENTIAL_UNAVAILABLE`，不重新生成或覆盖。替换任一凭据前先检查既有密文能否解密。
+
+旧版本 `apiKeyEnv` 记录仍可读取并在调用时解析 API 环境，显式替换／清除后移除引用；
+新表单及 API 不接受变量名，`/import-env` 已移除。环境文件仅供旧引用及授权开发测试加载：
+
+```text
+npm run dev -- --env-file=../goodbuddy/.env.deepseek.local
+```
+
+`scripts/dev.mjs` 用 `parseEnv` 加载指定文件，仅将文件中的变量传给 API 子进程，Vite 不接收
+这份加载结果，仅接收派生的 `SHARESERVER_API_PORT` 以同步代理目标；已有进程环境优先。
+环境变更需重启 API。该路径仅是可选的授权测试输入，
+不构成 GoodBuddy 依赖，不自动读取或迁移个人配置；使用既有个人配置须有明确的环境测试授权。
+
+`SHARESERVER_GATEWAY_BASE_URL` 设置完整客户端 Base URL，`/config` 将其返回为 `gatewayBaseUrl`；
+未配置时返回 `null`，界面提示配置，不从请求 Host 或 Vite 地址推断。自定义端口或异机访问须
+设置客户端可达的地址并保留 `/api/v1/gateway/v1`。
+
+请求体要求 JSON，读取上限为 1 MiB；上游 JSON 响应、发现结果及 SSE 总字节上限为 16 MiB。
+SSE 单事件及未分帧缓冲的字符串长度上限为 1,048,576 个 JavaScript UTF-16 码元，不能视为
+1 MiB 字节上限。默认超时 120 秒，聊天从读取入站请求到完成流共用该期限；取消会中止上游。
+SSE 必须有 `[DONE]`，中途 EOF 记 `INCOMPLETE_STREAM`；聊天 JSON 结果／SSE JSON 数据事件须有
+`choices` 数组且无 `error`。流已发出后，失败通过错误事件或流中断报告，HTTP 200 不代表调用成功。
+
+错误包为 `{error:{code,message},requestId}`，不回传上游错误正文。输入无效 400，Key 无效 401，停用、未授权模型或 Origin
+拒绝 403，不存在 404，别名冲突 409，请求超限 413，非 JSON 415，上游故障或响应无效 502，
+缺凭据／存储故障 503，超时 504。聊天审计的取消状态记 499；这不是承诺客户端能收到的 HTTP 状态。
+管理请求按上述 socket 和 Origin 规则校验；聊天端点也检查 Origin。未识别路径在通过管理边界后返回 JSON 404。
+
+存储默认 `data/gateway.json`，跟随 `SHARESERVER_DATA_DIR`。文件缺失时从空上游、映射和审计
+开始，首次写入创建文件，无预置服务或调用；每个数据目录只允许单进程中的一个 GatewayStore。
+写入排队，经临时文件、文件同步和 rename 后更新内存；坏文件返回存储错误，不自动重置。
+配置无删除 API，可编辑或停用；当前不提供配置修订冲突控制或 PostgreSQL 迁移。
+
+存储版本 2 包含上游密文、映射、Key 摘要及元数据与最新写入的 200 条聊天终态审计；版本 1
+可读取并在下次写入时保存为版本 2，保留原 ID 和旧环境引用。审计新记录在前，仅含 ID、时间、
+已识别模型别名、上游 ID、访问 Key ID、是否流式、成功／失败／取消、HTTP 状态、耗时、输入／输出 Token 和
+稳定错误码；未识别别名不保存用户原始值。用量只取上游有效非负整数，缺失为 `null`，不估算为零。
+审计不保存提示词、工具参数、响应正文或凭据；配置变更与模型发现不生成聊天审计，不具备完整管理审计。
+写入失败不能据此确认审计已保存，流中已发送的数据也不能撤回。
+
+本节按当前源码描述契约。`gateway.test.ts` 中的测试用例不等同于本次运行证据，实测结果与日期
+由 `progress.md` 维护；历史模拟网关的通过记录不追溯作为真实转发验收。
+
 ## 5. 数据模型
 
-下列数据库模型属于组织服务目标设计。本地目录首期使用第 4.1 节的文件存储，不将本地设备 ID 当作组织身份。
+下列数据库模型属于组织服务目标设计。本地目录和网关使用第 4.1、4.2 节的文件存储，不将本地设备 ID 当作组织身份。
 
 核心表建议为：
 
@@ -287,7 +392,7 @@ Release catalog 使用独立签名域。服务器不能重打包已签名 payloa
 ### 10.1 私有部署第一阶段（待实现）
 
 本节是首期容器、配置、接口和持久化的权威设计，范围以 PRD 第 3 节为准。当前 `/documents`
-仍为演示，仓库只有 ShareServer 的 `docker/compose.yaml`，没有 Office overlay 或真实编辑链路。
+显示待接入说明，仓库只有 ShareServer 的 `docker/compose.yaml`，没有 Office overlay 或真实编辑链路。
 第一阶段采用单个 ShareServer 进程、独立 Document Server 和本地文件系统，不新增身份源、数据库、
 S3/MinIO、独立 callback worker 或启动 code／安全 Cookie 交换。仅适用于可信私有网络；当前无认证，
 可访问服务者可操作试验文档，随机文档 ID 和 JWT 均不能据此宣称用户授权或组织隔离。
@@ -523,46 +628,25 @@ Office 第一阶段配置与独立往返验收见第 10.1 节；后续组织部�
 
 设计完成不代表服务已实现；只有独立部署和真实 Desktop 端到端路径通过后才能更新实施状态。
 
-## 16. 当前原型实现
+## 16. 当前控制台实现
 
-2026-09-05 建立的交互原型固定以下技术基线：
+Hono 与 `@hono/node-server` 提供 API 和构建后的同源 Web 托管。Web 沿用 React、Vite、
+TypeScript、Tailwind CSS 和 Radix。部署已有非 root 多阶段 Docker 镜像。
 
-- API：Hono + `@hono/node-server`，保留 `/api/v1/public/*` 与
-  `/api/v1/web/*` audience 路径。
-- Web：React、Vite、TypeScript、Tailwind CSS 和 Radix primitives，按 shadcn/ui 组件模式
-  维护本地可修改组件。
-- 路由与范围：管理员和成员自助使用不同可见导航；当前组织持续显示。
-- 部署：生产构建由同源 Hono 服务托管，并提供非 root 多阶段 Docker 镜像。
+`web/src/App.tsx` 不再请求原型快照，不显示虚构身份或角色切换。概览显示服务入口，
+`/capabilities` 通过 `sharing-center.tsx` 与 `local-sharing.tsx` 读取真实设备和发布记录；
+来源与知识权限只是声明，不代表正文、检索或调用已可用。
 
-`/api/v1/public/ready` 返回 `mode=interactive-prototype` 和
-`productionReady=false`。原型 fixture、角色切换和操作确认只用于评审信息架构，不得被
-Desktop 或部署脚本当作真实身份、策略、任务或审计 API。组织生产实施须从 FR-1
-初始化、本地身份、PostgreSQL 组织作用域和事务审计开始；第 10.1 节私有 Office 试验可独立推进，
-使用真实文件和独立元数据，不在 fixture 上叠加权威状态。
-当前 `/documents` 已有 OnlyOffice 实例配置与预设检查模拟；Office 会话 API、对象存储、
-ONLYOFFICE 编辑、callback、文档保存和 Desktop 文档 Tab 集成仍未实现。
+`/model-gateway` 的 `gateway-page.tsx` 使用第 4.2 节真实 API 保存配置、发现模型、发起非流式
+测试和读取审计；测试正文仅在组件内存，卸载取消在途请求。`/distribution` 只显示待接入说明
+与网关链接。文档和其他未实现模块显示待接入状态，没有示例列表或模拟操作。
 
-`web/src/app-config.ts` 将 `/model-gateway`、`/documents`、`/distribution` 放入管理员的
-“GoodBuddy 服务”分组。`web/src/components/services-demo.tsx` 使用 `ServicesDemo` 的 React
-Context 与 `useState` 共享演示状态，跨路由导航保留、刷新重置。服务演示操作不使用 Hono
-操作确认 API、不发网络请求、不写本地存储，也不保存凭据；页面角色与权限判断均为内存模拟。
-控制台启动仍通过既有快照 API 加载示例数据，此边界仅指三个服务页的模拟操作。
+服务端仍保留旧 `/api/v1/web/prototype/*` 接口及 fixture，但它们已退出控制台调用路径，不能
+作为组织业务 API。`/api/v1/public/ready` 仍报告 `mode=interactive-prototype`、
+`productionReady=false` 和存储未检查。历史模拟测试不作为真实业务验收。
 
-模型网关只模拟上游／映射启用与用户组策略判断及最近 50 条有界调用审计；产品职责是转发
-其他模型服务，不托管模型或执行推理。文档仅保存示例名称、归属及回收站标记；转移清除个人
-删除权，组织删除／恢复依赖显式模拟角色，恢复保留归属。OnlyOffice 检查使用预设结果。
-
-配置演示保存单个草稿和按组发布历史，发布与回退均重新检查模型可用性；回退取上一条记录并
-移除当前末项，恢复版本及默认模型。仅目标组在线示例设备更新 `applied`，离线设备保持原值与
-待下发状态。这里没有设备连接、重连投递或持久化版本记录，不能作为真实配置交付证据。
-
-共享中心原型由 `web/src/components/sharing-center.tsx` 和 `web/src/lib/sharing-fixtures.ts` 提供。
-条目使用现有快照中的成员、设备 ID 建立关联，本地 fixture 仅含元数据和显式权限标记。
-既有 `/capabilities` 路由不变；查询参数 `view=catalog|knowledge|users|devices` 选择页签，
-`user`／`device` 定位主体，`item` 打开详情，`q`、`status=ready|unavailable`、
-`source=synced|remote`、`audience` 保存筛选。刷新恢复 URL 状态；内容链接保留筛选，
-跨主体链接清除旧条件，无效条目链接显示可关闭的错误详情。除启动快照外不新增 API 请求，
-不保存正文、不模拟下载；真实授权和同步仍属后续实现。
+B1 正常网关接入代码已实现，真实验收部分完成，范围见实施进度。组织服务需补身份、PostgreSQL 与授权；Office 私有
+试验可按第 10.1 节独立推进。保存网关模型不会自动下发给 GoodBuddy，配置交付仍未实现。
 
 ## 17. 工作空间协作的待实现契约
 

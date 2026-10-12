@@ -15,6 +15,7 @@ import type { PrototypeSnapshot } from '../../../shared/prototype-data'
 import { PageHeader } from './page-header'
 import { Button } from './ui/button'
 import { StatusBadge } from './ui/status-badge'
+import { PageTabs } from './page-tabs'
 
 function SettingCard({
   icon: Icon,
@@ -77,6 +78,7 @@ export function SettingsPage({ snapshot }: { snapshot: PrototypeSnapshot }) {
   const [federation, setFederation] = useState(true)
   const [oidc, setOidc] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [activeTab, setActiveTab] = useState('instance')
 
   return (
     <>
@@ -101,8 +103,9 @@ export function SettingsPage({ snapshot }: { snapshot: PrototypeSnapshot }) {
           原型设置已保存到当前浏览器会话，不会写入生产配置。
         </div>
       ) : null}
+      <PageTabs title="系统设置" active={activeTab} onChange={setActiveTab} tabs={[{ key: 'instance', label: '实例信息' }, { key: 'identity', label: '身份与登录' }, { key: 'infrastructure', label: '基础设施' }, { key: 'relay', label: '中继与联邦' }, { key: 'notifications', label: '通知' }, { key: 'retention', label: '保留与审计' }]} />
       <div className="grid gap-5 xl:grid-cols-2">
-        <SettingCard
+        {activeTab === 'instance' && <SettingCard
           icon={CloudCog}
           title="实例信息"
           description="公开名称、地址与协议协商信息。"
@@ -127,9 +130,9 @@ export function SettingsPage({ snapshot }: { snapshot: PrototypeSnapshot }) {
               <StatusBadge status="兼容" tone="online" />
             </div>
           </div>
-        </SettingCard>
+        </SettingCard>}
 
-        <SettingCard
+        {activeTab === 'infrastructure' && <SettingCard
           icon={Database}
           title="基础设施"
           description="状态可见，敏感连接信息不在 Web 控制台回显。"
@@ -150,9 +153,9 @@ export function SettingsPage({ snapshot }: { snapshot: PrototypeSnapshot }) {
               </div>
             ))}
           </div>
-        </SettingCard>
+        </SettingCard>}
 
-        <SettingCard
+        {activeTab === 'identity' && <SettingCard
           icon={KeyRound}
           title="身份与登录"
           description="本地账号可用；OIDC 需要部署管理员配置固定回调地址。"
@@ -172,9 +175,9 @@ export function SettingsPage({ snapshot }: { snapshot: PrototypeSnapshot }) {
               <StatusBadge status="已启用" tone="online" />
             </div>
           </div>
-        </SettingCard>
+        </SettingCard>}
 
-        <SettingCard
+        {activeTab === 'relay' && <SettingCard
           icon={RadioTower}
           title="中继与联邦"
           description="控制面独立运行，关闭中继不会影响设备注册和目录。"
@@ -193,9 +196,9 @@ export function SettingsPage({ snapshot }: { snapshot: PrototypeSnapshot }) {
               description="仍需双方管理员核对指纹并分别确认关系。"
             />
           </div>
-        </SettingCard>
+        </SettingCard>}
 
-        <SettingCard
+        {activeTab === 'notifications' && <SettingCard
           icon={Mail}
           title="通知"
           description="用于邀请、审批和高影响状态通知。"
@@ -207,9 +210,9 @@ export function SettingsPage({ snapshot }: { snapshot: PrototypeSnapshot }) {
             </span>
             <Button size="sm" variant="secondary">发送测试</Button>
           </div>
-        </SettingCard>
+        </SettingCard>}
 
-        <SettingCard
+        {activeTab === 'retention' && <SettingCard
           icon={Braces}
           title="保留与审计"
           description="默认只保留有界元数据，不保存提示正文、文件与模型输出。"
@@ -231,9 +234,9 @@ export function SettingsPage({ snapshot }: { snapshot: PrototypeSnapshot }) {
               </select>
             </label>
           </div>
-        </SettingCard>
+        </SettingCard>}
       </div>
-      <section className="mt-5 rounded-2xl border border-rose-400/15 bg-rose-400/[0.035] p-5">
+      {activeTab === 'instance' && <section className="mt-5 rounded-2xl border border-rose-400/15 bg-rose-400/[0.035] p-5">
         <div className="flex items-start gap-3">
           <ShieldCheck className="mt-0.5 size-5 shrink-0 text-rose-300" />
           <div className="flex-1">
@@ -244,7 +247,7 @@ export function SettingsPage({ snapshot }: { snapshot: PrototypeSnapshot }) {
           </div>
           <Button variant="danger">删除组织</Button>
         </div>
-      </section>
+      </section>}
     </>
   )
 }

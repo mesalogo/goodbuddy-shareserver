@@ -1,226 +1,78 @@
-import {
-  Activity,
-  ArrowUpRight,
-  CheckCircle2,
-  CircleAlert,
-  GitFork,
-  RadioTower,
-  ServerCog,
-  ShieldCheck,
-  Sparkles
-} from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
-import type { Metric, PrototypeSnapshot } from '../../../shared/prototype-data'
+import { ArrowUpRight, CircleAlert, Router, Server, Share2 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import type { Device, Publication } from '../../../shared/sharing'
+import type { GatewaySnapshot } from '../../../shared/gateway'
+import { sharingRequest } from '../lib/sharing-api'
+import { gatewayRequest } from '../lib/gateway-api'
 import { PageHeader } from './page-header'
-import { StatusBadge } from './ui/status-badge'
+import { PageTabs } from './page-tabs'
 
-const metricStyles: Record<Metric['tone'], string> = {
-  cyan: 'from-cyan-400/16 to-cyan-400/[0.025] border-cyan-300/15 text-cyan-300',
-  violet: 'from-violet-400/16 to-violet-400/[0.025] border-violet-300/15 text-violet-300',
-  amber: 'from-amber-400/16 to-amber-400/[0.025] border-amber-300/15 text-amber-200',
-  rose: 'from-rose-400/16 to-rose-400/[0.025] border-rose-300/15 text-rose-300'
+const panel = 'rounded-2xl border border-white/10 bg-[var(--panel)] p-4 sm:p-5'
+const muted = 'text-sm leading-6 text-[var(--text-muted)]'
+
+type Topology = { devices: Device[]; publications: Publication[]; gateway: GatewaySnapshot }
+
+function TopologyNode({ icon: Icon, title, detail, tone = 'cyan' }: { icon: LucideIcon; title: string; detail: string; tone?: 'cyan' | 'violet' | 'slate' }) {
+  const colors = { cyan: 'border-cyan-300/25 bg-cyan-300/[0.08] text-cyan-100', violet: 'border-violet-300/25 bg-violet-300/[0.08] text-violet-100', slate: 'border-white/10 bg-white/[0.04] text-slate-200' }
+  return <div className={`min-w-0 rounded-xl border p-4 ${colors[tone]}`}><Icon aria-hidden="true" className="mb-3 size-5" /><p className="font-medium">{title}</p><p className="mt-1 break-words text-xs leading-5 text-[var(--text-muted)]">{detail}</p></div>
 }
 
-export function OverviewPage({ snapshot }: { snapshot: PrototypeSnapshot }) {
-  const navigate = useNavigate()
-  const maxActivity = Math.max(...snapshot.activity.map((item) => item.value))
-  const recent = [
-    {
-      icon: ShieldCheck,
-      title: '策略决定',
-      copy: '生产数据跨组织请求被强制策略拒绝',
-      time: '2 分钟前',
-      tone: 'warning' as const
-    },
-    {
-      icon: CheckCircle2,
-      title: '能力发布',
-      copy: 'GPU-Worker-05 的图像生成能力已批准',
-      time: '4 分钟前',
-      tone: 'online' as const
-    },
-    {
-      icon: GitFork,
-      title: '联邦心跳',
-      copy: '法务服务商网关完成双边状态同步',
-      time: '8 分钟前',
-      tone: 'neutral' as const
-    }
-  ]
+export function OverviewPage() {
+  const [topology, setTopology] = useState<Topology | null>(null)
+  const [topologyError, setTopologyError] = useState('')
+  const [activeTab, setActiveTab] = useState('status')
+
+  useEffect(() => {
+    const controller = new AbortController()
+    Promise.all([
+      sharingRequest<{ devices: Device[] }>('/devices', controller.signal),
+      sharingRequest<{ publications: Publication[] }>('/publications', controller.signal),
+      gatewayRequest<GatewaySnapshot>('/config', controller.signal)
+    ]).then(([devices, publications, gateway]) => {
+      if (!controller.signal.aborted) setTopology({ devices: devices.devices, publications: publications.publications, gateway })
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) setTopologyError(error instanceof Error ? error.message : '拓扑数据加载失败')
+    })
+    return () => controller.abort()
+  }, [])
 
   return (
     <>
       <PageHeader
-        eyebrow={`实例 · ${snapshot.instance.region}`}
+        eyebrow="ShareServer"
         title="运行概览"
-        description={`用户在 GoodBuddy 中工作，${snapshot.instance.name} 为 ${snapshot.instance.organization} 管理服务与组织资源。`}
-        action={
-          <div className="flex items-center gap-2 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.06] px-3 py-2 text-xs text-emerald-200">
-            <span className="size-1.5 rounded-full bg-emerald-300 shadow-[0_0_10px_rgba(52,211,153,.9)]" />
-            交互原型 · 示例数据
-          </div>
-        }
+        description="管理当前服务的模型网关与本地共享目录。"
       />
-
-      <section aria-label="GoodBuddy 联动服务" className="mb-6 grid gap-4 md:grid-cols-3">
-        {[
-          { path: '/model-gateway', title: '模型网关', flow: 'GoodBuddy → ShareServer → 上游模型', copy: '管理模型转发和授权，演示允许或拒绝调用及审计记录。' },
-          { path: '/documents', title: '文档与协作', flow: 'GoodBuddy → 服务端文档 → OnlyOffice', copy: '管理文档归属与编辑服务，演示个人文档转交组织及回收恢复。' },
-          { path: '/distribution', title: '配置下发', flow: '组织配置 → GoodBuddy → 生效回执', copy: '选择网关模型、发布配置，演示在线生效、离线等待和版本回滚。' }
-        ].map((service) => <button key={service.path} onClick={() => navigate(service.path)} className="rounded-2xl border border-white/10 bg-[var(--panel)] p-5 text-left outline-none transition hover:bg-[var(--control)] focus-visible:ring-2 focus-visible:ring-cyan-400/70">
-          <span className="flex items-center justify-between gap-2 font-semibold text-[var(--text-strong)]">{service.title}<ArrowUpRight className="size-4" /></span>
-          <span className="mt-3 block text-xs leading-5 text-[var(--text-primary)]">{service.flow}</span>
-          <span className="mt-2 block text-sm leading-6 text-[var(--text-muted)]">{service.copy}</span>
-        </button>)}
+      <PageTabs title="运行概览" active={activeTab} onChange={setActiveTab} tabs={[{ key: 'status', label: '服务状态' }, { key: 'pending', label: '待处理事项' }, { key: 'activity', label: '最近活动' }]} />
+      {activeTab !== 'status' && <section className={`${panel} mb-6`}><h2 className="font-semibold">{activeTab === 'pending' ? '待处理事项' : '最近活动'}</h2><p className={`mt-2 ${muted}`}>该 Tab 的组织事件接口尚未接入，当前不生成示例审批、任务或活动记录。</p></section>}
+      {activeTab === 'status' && <>
+      <section aria-label="服务拓扑" className={`${panel} mb-6`}>
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold text-[var(--text-strong)]">服务拓扑</h2><p className={`mt-1 ${muted}`}>根据当前登记设备、共享目录和模型网关配置展示实际连接关系。</p></div><Link className="text-sm underline underline-offset-4" to="/devices">查看接入设备</Link></div>
+        {topologyError && <p role="alert" className="mt-4 flex items-center gap-2 text-sm text-rose-300"><CircleAlert aria-hidden="true" className="size-4" />拓扑数据加载失败：{topologyError}</p>}
+        {!topology && !topologyError && <p role="status" className={`mt-5 ${muted}`}>正在读取服务拓扑…</p>}
+        {topology && <div className="mt-5 grid items-center gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr]">
+          <TopologyNode icon={Share2} title="GoodBuddy 设备" detail={`${topology.devices.length} 台已登记设备；登记记录不代表在线`} />
+          <div aria-hidden="true" className="hidden h-px bg-cyan-300/30 lg:block" />
+          <TopologyNode icon={Server} title="ShareServer" detail={`${topology.publications.filter((item) => item.status === 'published').length} 项已发布目录；负责网关转发与目录管理`} tone="violet" />
+          <div aria-hidden="true" className="hidden h-px bg-violet-300/30 lg:block" />
+          <TopologyNode icon={Router} title="外部模型上游" detail={`${topology.gateway.upstreams.filter((item) => item.enabled).length} 个启用上游，${topology.gateway.models.filter((item) => item.enabled).length} 个启用模型`} tone="slate" />
+        </div>}
+        {topology && <p className={`mt-4 ${muted}`}>共享目录当前只保存发布元数据；模型请求通过 ShareServer 转发到已配置上游，GoodBuddy 不直接读取上游凭据。</p>}
       </section>
-
-      <section aria-label="关键指标" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {snapshot.metrics.map((metric) => (
-          <button
-            key={metric.label}
-            className={`group relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 text-left outline-none transition duration-200 hover:-translate-y-0.5 hover:border-white/20 focus-visible:ring-2 focus-visible:ring-cyan-400/70 ${metricStyles[metric.tone]}`}
-            onClick={() => navigate(metric.target)}
-          >
-            <div className="absolute -right-8 -top-8 size-24 rounded-full bg-current opacity-[0.055] blur-2xl" />
-            <div className="flex items-start justify-between">
-              <span className="text-xs font-medium text-[var(--text-muted)]">{metric.label}</span>
-              <ArrowUpRight className="size-4 opacity-50 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:opacity-100" />
-            </div>
-            <p className="mt-5 text-3xl font-semibold tracking-[-0.04em] text-[var(--text-strong)]">
-              {metric.value}
-            </p>
-            <p className="mt-2 text-xs text-[var(--text-muted)]">{metric.detail}</p>
-          </button>
+      <section aria-label="GoodBuddy 联动服务" className="mb-6 grid gap-4 md:grid-cols-2">
+        {[
+          { path: '/model-gateway', title: '模型网关', copy: '配置上游与模型别名、测试请求转发并查看调用审计。' },
+          { path: '/capabilities', title: '共享中心', copy: '查看当前服务登记的设备与发布记录，按设备、类型和发布状态筛选。' }
+        ].map((service) => (
+          <Link key={service.path} to={service.path} className="rounded-2xl border border-white/10 bg-[var(--panel)] p-5 text-left outline-none transition hover:bg-[var(--control)] focus-visible:ring-2 focus-visible:ring-cyan-400/70">
+            <span className="flex items-center justify-between gap-2 font-semibold text-[var(--text-strong)]">{service.title}<ArrowUpRight aria-hidden="true" className="size-4" /></span>
+            <span className="mt-2 block text-sm leading-6 text-[var(--text-muted)]">{service.copy}</span>
+          </Link>
         ))}
       </section>
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1.55fr_.85fr]">
-        <section className="rounded-2xl border border-white/[0.075] bg-[var(--panel)] p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-sm font-semibold text-[var(--text-strong)]">任务活动</h2>
-              <p className="mt-1 text-xs text-[var(--text-muted)]">过去 12 小时创建的任务</p>
-            </div>
-            <span className="rounded-lg border border-white/[0.07] bg-white/[0.035] px-2.5 py-1.5 text-xs text-[var(--text-muted)]">
-              24 小时
-            </span>
-          </div>
-          <div className="mt-8 flex h-52 items-end gap-2 sm:gap-3" role="img" aria-label="过去十二小时任务量柱状图">
-            {snapshot.activity.map((item, index) => (
-              <div key={item.time} className="group flex h-full min-w-0 flex-1 flex-col justify-end">
-                <div className="relative flex-1">
-                  <div
-                    className="absolute inset-x-0 bottom-0 min-h-1 rounded-t-md bg-gradient-to-t from-cyan-400/35 to-cyan-300/90 shadow-[0_0_18px_-8px_rgba(34,211,238,.8)] transition group-hover:from-violet-400/50 group-hover:to-violet-300"
-                    style={{ height: `${Math.max(6, (item.value / maxActivity) * 100)}%` }}
-                  >
-                    <span className="absolute -top-6 left-1/2 hidden -translate-x-1/2 text-[10px] text-cyan-200 group-hover:block">
-                      {item.value}
-                    </span>
-                  </div>
-                </div>
-                <span className={`mt-2 text-center text-[9px] text-slate-600 ${index % 2 ? 'hidden sm:block' : ''}`}>
-                  {item.time}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-white/[0.075] bg-[var(--panel)] p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-[var(--text-strong)]">网络脉冲</h2>
-              <p className="mt-1 text-xs text-[var(--text-muted)]">连接与路由示例摘要</p>
-            </div>
-            <RadioTower className="size-5 text-cyan-300" />
-          </div>
-          <div className="relative mt-7 grid place-items-center py-4">
-            <div className="pulse-ring absolute size-36 rounded-full border border-cyan-300/10" />
-            <div className="pulse-ring pulse-delay absolute size-24 rounded-full border border-cyan-300/15" />
-            <div className="relative grid size-16 place-items-center rounded-full border border-cyan-300/25 bg-cyan-300/10 shadow-[0_0_45px_-10px_rgba(34,211,238,.7)]">
-              <ServerCog className="size-7 text-cyan-200" />
-            </div>
-          </div>
-          <dl className="mt-4 grid grid-cols-3 gap-2 text-center">
-            <div className="rounded-xl bg-white/[0.025] p-3">
-              <dt className="text-[10px] text-slate-500">设备连接</dt>
-              <dd className="mt-1 text-sm font-semibold text-slate-200">18</dd>
-            </div>
-            <div className="rounded-xl bg-white/[0.025] p-3">
-              <dt className="text-[10px] text-slate-500">联邦网关</dt>
-              <dd className="mt-1 text-sm font-semibold text-slate-200">1 / 2</dd>
-            </div>
-            <div className="rounded-xl bg-white/[0.025] p-3">
-              <dt className="text-[10px] text-slate-500">中继占用</dt>
-              <dd className="mt-1 text-sm font-semibold text-slate-200">34%</dd>
-            </div>
-          </dl>
-        </section>
-      </div>
-
-      <div className="mt-5 grid gap-5 lg:grid-cols-2">
-        <section className="overflow-hidden rounded-2xl border border-white/[0.075] bg-[var(--panel)]">
-          <header className="flex items-center justify-between border-b border-white/[0.065] px-5 py-4">
-            <div>
-              <h2 className="text-sm font-semibold text-[var(--text-strong)]">需要关注</h2>
-              <p className="mt-1 text-xs text-[var(--text-muted)]">按影响与等待时间排序</p>
-            </div>
-            <CircleAlert className="size-5 text-amber-300" />
-          </header>
-          <div className="divide-y divide-white/[0.055]">
-            {snapshot.pages.approvals.slice(0, 3).map((item) => (
-              <button
-                key={item.id}
-                className="flex w-full items-center gap-4 px-5 py-4 text-left outline-none transition hover:bg-white/[0.025] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-400/60"
-                onClick={() => navigate('/approvals')}
-              >
-                <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-amber-300/15 bg-amber-300/[0.07] text-amber-200">
-                  <Sparkles className="size-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-[var(--text-strong)]">{item.primary}</span>
-                  <span className="mt-1 block truncate text-xs text-[var(--text-muted)]">{item.secondary}</span>
-                </span>
-                <span className="hidden text-xs text-slate-600 sm:block">{item.meta[2]}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="overflow-hidden rounded-2xl border border-white/[0.075] bg-[var(--panel)]">
-          <header className="flex items-center justify-between border-b border-white/[0.065] px-5 py-4">
-            <div>
-              <h2 className="text-sm font-semibold text-[var(--text-strong)]">最近活动</h2>
-              <p className="mt-1 text-xs text-[var(--text-muted)]">仅显示有界审计元数据</p>
-            </div>
-            <Activity className="size-5 text-violet-300" />
-          </header>
-          <div className="divide-y divide-white/[0.055]">
-            {recent.map((item) => {
-              const Icon = item.icon
-              return (
-                <div key={item.copy} className="flex items-center gap-4 px-5 py-4">
-                  <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.04] text-slate-300">
-                    <Icon className="size-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-xs font-medium text-slate-500">{item.title}</span>
-                    <span className="mt-1 block truncate text-sm text-[var(--text-primary)]">{item.copy}</span>
-                  </span>
-                  <span className="text-xs text-slate-600">{item.time}</span>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      </div>
-
-      <footer className="mt-6 flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
-        <StatusBadge status="原型数据" tone="neutral" />
-        <span>{snapshot.instance.protocol}</span>
-        <span>·</span>
-        <span>快照 {new Date(snapshot.instance.generatedAt).toLocaleString('zh-CN')}</span>
-      </footer>
+      </>}
     </>
   )
 }
