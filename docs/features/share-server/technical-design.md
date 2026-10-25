@@ -1,5 +1,8 @@
 # ShareServer 技术设计
 
+设备接入现已与管理会话分离：GB 使用 `/api/v1/device-sharing`，默认免验证接纳；审批、凭据、
+存储兼容与状态接口见[设备注册与审批](./device-registration.md)。旧 `/api/v1/sharing` 为管理员目录接口。
+
 当前新增的实例管理员初始化、会话及 LAN 管理契约见[管理员登录第一版](./admin-login.md)。
 下文 B1 的 direct-loopback 边界仅适用于未启用认证的开发模式；B2 组织成员与设备认证仍未完成。
 

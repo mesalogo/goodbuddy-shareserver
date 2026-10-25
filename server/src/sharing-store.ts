@@ -1,11 +1,11 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { Device, DeviceInput, Publication, PublicationInput } from '../../shared/sharing.js'
 import { databaseEnabled, readState, writeState } from './database.js'
 
 export class SharingError extends Error {
-  constructor(public status: 400 | 404 | 409 | 413 | 415, public code: string, message: string) {
+  constructor(public status: 400 | 401 | 403 | 404 | 409 | 413 | 415, public code: string, message: string) {
     super(message)
   }
 }
@@ -73,7 +73,10 @@ interface State {
   version: 1
   devices: Device[]
   publications: Publication[]
+  registration?: { mode: 'open' | 'approval'; credentials: Record<string, { hash: string; status: DeviceStatus }> }
 }
+export type DeviceStatus = 'approved' | 'pending' | 'rejected' | 'disabled'
+const credentialHash = (token: string) => createHash('sha256').update(token).digest('hex')
 
 function timestamp(value: unknown): string {
   if (typeof value !== 'string' || !Number.isFinite(Date.parse(value)) ||
@@ -82,7 +85,8 @@ function timestamp(value: unknown): string {
 }
 
 function parseState(value: unknown): State {
-  const state = object(value, ['version', 'devices', 'publications'])
+  const hasRegistration = Boolean(value && typeof value === 'object' && Object.hasOwn(value, 'registration'))
+  const state = object(value, ['version', 'devices', 'publications', ...(hasRegistration ? ['registration'] : [])])
   if (state.version !== 1 || !Array.isArray(state.devices) || !Array.isArray(state.publications)) {
     throw new Error('Invalid metadata file.')
   }
@@ -99,7 +103,17 @@ function parseState(value: unknown): State {
   const ids = new Set(devices.map((device) => device.id))
   if (ids.size !== devices.length || new Set(publications.map((item) => item.id)).size !== publications.length ||
     publications.some((item) => !ids.has(item.deviceId))) throw new Error('Invalid metadata references.')
-  return { version: 1, devices, publications }
+  let registration: State['registration']
+  if (hasRegistration) {
+    const r = object(state.registration, ['mode', 'credentials'])
+    if (!['open', 'approval'].includes(String(r.mode)) || !r.credentials || typeof r.credentials !== 'object' || Array.isArray(r.credentials)) throw new Error('Invalid registration settings.')
+    for (const [id, entry] of Object.entries(r.credentials)) {
+      const credential = object(entry, ['hash', 'status'])
+      if (!ids.has(id) || typeof credential.hash !== 'string' || !/^[a-f0-9]{64}$/.test(credential.hash) || !['approved', 'pending', 'rejected', 'disabled'].includes(String(credential.status))) throw new Error('Invalid device credential.')
+    }
+    registration = r as NonNullable<State['registration']>
+  }
+  return { version: 1, devices, publications, ...(registration ? { registration } : {}) }
 }
 
 // One store per data directory in one process. The queue covers reads and mutations.
@@ -185,6 +199,68 @@ export class SharingStore {
     return this.run(async () => structuredClone((await this.load()).publications.filter(
       (item) => deviceId === undefined || item.deviceId === deviceId
     )))
+  }
+
+  registrationSettings() {
+    return this.run(async () => {
+      const state = await this.load()
+      return { mode: state.registration?.mode ?? 'open', devices: state.devices.map(device => ({ ...device, registrationStatus: state.registration?.credentials[device.id]?.status ?? 'unregistered' })) }
+    })
+  }
+
+  setRegistrationMode(mode: unknown) {
+    if (mode !== 'open' && mode !== 'approval') throw new SharingError(400, 'INVALID_INPUT', '请选择免验证或需要审批。')
+    return this.run(async () => {
+      const state = structuredClone(await this.load())
+      state.registration ??= { mode: 'open', credentials: {} }
+      state.registration.mode = mode
+      await this.save(state)
+      return { mode }
+    })
+  }
+
+  decideDevice(id: string, status: unknown) {
+    if (!['approved', 'rejected', 'disabled'].includes(String(status))) throw new SharingError(400, 'INVALID_INPUT', '无效的审批操作。')
+    return this.run(async () => {
+      const state = structuredClone(await this.load())
+      const credential = state.registration && Object.hasOwn(state.registration.credentials, id) ? state.registration.credentials[id] : undefined
+      if (!credential) throw new SharingError(404, 'DEVICE_NOT_FOUND', '此设备尚未申请接入。')
+      credential.status = status as DeviceStatus
+      await this.save(state)
+      return { registrationStatus: credential.status }
+    })
+  }
+
+  enroll(input: DeviceInput, token: string) {
+    if (!/^[a-f0-9]{64}$/.test(token)) throw new SharingError(401, 'DEVICE_CREDENTIAL_REQUIRED', '请更新 GB 并重新注册设备。')
+    return this.run(async () => {
+      const state = structuredClone(await this.load())
+      state.registration ??= { mode: 'open', credentials: {} }
+      const existing = Object.hasOwn(state.registration.credentials, input.id) ? state.registration.credentials[input.id] : undefined
+      if (existing && existing.hash !== credentialHash(token)) throw new SharingError(401, 'DEVICE_CREDENTIAL_INVALID', '设备凭据不匹配，请使用原设备配置。')
+      const credential = existing ?? { hash: credentialHash(token), status: state.registration.mode === 'open' ? 'approved' as const : 'pending' as const }
+      const index = state.devices.findIndex(d => d.id === input.id)
+      const now = new Date().toISOString()
+      const device = { ...input, registeredAt: state.devices[index]?.registeredAt ?? now, updatedAt: now }
+      if (index < 0) state.devices.push(device)
+      else state.devices[index] = device
+      state.registration.credentials[input.id] = credential
+      await this.save(state)
+      return { ...device, registrationStatus: credential.status }
+    })
+  }
+
+  deviceIdentity(id: string, token: string, requireApproved = true) {
+    return this.run(async () => {
+      const state = await this.load()
+      const credential = state.registration && Object.hasOwn(state.registration.credentials, id) ? state.registration.credentials[id] : undefined
+      if (!credential || !/^[a-f0-9]{64}$/.test(token) || credential.hash !== credentialHash(token)) throw new SharingError(401, 'DEVICE_CREDENTIAL_INVALID', '设备未注册或凭据失效，请注册设备。')
+      if (requireApproved && credential.status !== 'approved') {
+        const messages = { pending: '等待 ShareServer 管理员批准。', rejected: '设备注册申请已被拒绝，请联系管理员。', disabled: '设备已被管理员停用，请联系管理员。' }
+        throw new SharingError(403, `DEVICE_${credential.status.toUpperCase()}`, messages[credential.status])
+      }
+      return { ...state.devices.find(d => d.id === id)!, registrationStatus: credential.status }
+    })
   }
 
   register(input: DeviceInput): Promise<Device> {

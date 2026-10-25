@@ -7,6 +7,7 @@ import { Button } from './ui/button'
 import { Dialog } from './ui/dialog'
 import { StatusBadge } from './ui/status-badge'
 import { PageTabs } from './page-tabs'
+import { DeviceRegistration } from './device-registration'
 
 const panel = 'space-y-4 rounded-2xl border border-white/10 bg-[var(--panel)] p-4 sm:p-5'
 const muted = 'text-sm leading-6 text-[var(--text-muted)]'
@@ -44,9 +45,10 @@ export function DevicesPage() {
   }
 
   return <>
-    <PageHeader eyebrow="本地服务目录 · 只读" title="GoodBuddy 接入" description="查看已登记的 GoodBuddy 设备及其发布的共享目录元数据。当前没有在线状态、身份认证或设备管理 API。" action={<Button variant="secondary" onClick={() => { setState({ status: 'loading' }); setAttempt((value) => value + 1) }} disabled={state.status === 'loading'}>刷新目录</Button>} />
-    <PageTabs title="GoodBuddy 接入" active={activeTab} onChange={setActiveTab} tabs={[{ key: 'list', label: '设备列表' }, { key: 'detail', label: '设备详情' }, { key: 'connections', label: '连接记录' }, { key: 'revocations', label: '撤销记录' }]} />
-    {activeTab !== 'list' && <section className={panel}><h2 className="font-semibold">{activeTab === 'detail' ? '设备详情' : activeTab === 'connections' ? '连接记录' : '撤销记录'}</h2><p className={muted}>该 Tab 的生产接口尚未接入。当前服务只提供设备登记元数据，暂不显示在线状态、连接心跳或撤销结果。</p></section>}
+    <PageHeader eyebrow="设备与共享" title="GoodBuddy 接入" description="管理设备注册策略、审批和停用，查看共享目录元数据。登记记录不代表设备在线。" action={<Button variant="secondary" onClick={() => { setState({ status: 'loading' }); setAttempt((value) => value + 1) }} disabled={state.status === 'loading'}>刷新目录</Button>} />
+    <PageTabs title="GoodBuddy 接入" active={activeTab} onChange={setActiveTab} tabs={[{ key: 'list', label: '设备列表' }, { key: 'registration', label: '注册设置' }, { key: 'detail', label: '设备详情' }, { key: 'connections', label: '连接记录' }, { key: 'revocations', label: '撤销记录' }]} />
+    {activeTab === 'registration' && <DeviceRegistration />}
+    {!['list', 'registration'].includes(activeTab) && <section className={panel}><h2 className="font-semibold">{activeTab === 'detail' ? '设备详情' : activeTab === 'connections' ? '连接记录' : '撤销记录'}</h2><p className={muted}>该 Tab 的生产接口尚未接入。当前服务只提供设备登记元数据，暂不显示在线状态、连接心跳或撤销结果。</p></section>}
     {state.status === 'loading' && <p role="status" className={muted}>正在加载登记设备…</p>}
     {state.status === 'error' && <section className={panel}><h2 className="font-semibold">设备目录加载失败</h2><p className={`${muted} break-words`}>{state.message}</p><Button variant="secondary" onClick={() => { setState({ status: 'loading' }); setAttempt((value) => value + 1) }}>重试</Button></section>}
     {state.status === 'loaded' && activeTab === 'list' && <>

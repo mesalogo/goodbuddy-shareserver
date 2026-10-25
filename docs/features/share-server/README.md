@@ -31,6 +31,7 @@ ShareServer 不属于 Electron Main，不负责桌面端局域网发现，也不
 | [技术设计](./technical-design.md) | 服务模块、API、数据、部署、运维和验证 |
 | [管理登记第一版](./management-register.md) | 人工管理登记的交互、状态、持久化接口与当前边界 |
 | [管理员登录第一版](./admin-login.md) | 首次初始化、登录会话、LAN 管理与当前认证范围 |
+| [设备注册与审批](./device-registration.md) | 默认免验证、审批与停用、GB 设备凭据及客户端协议 |
 | [后端基础设计](./backend-foundation-design.md) | GoodBuddy 适配依据；B1 已实现、验收部分完成，B2 至 B6 待实现 |
 | [实施进度](./progress.md) | 已验证实现、剩余生产工作与验证证据 |
 | [共享网络总体设计](../../../../goodbuddy/docs/architecture/share-network-architecture.md) | 跨端身份、能力、授权、任务、更新和协议权威（GoodBuddy 仓库） |
@@ -63,7 +64,9 @@ GoodBuddy 注册和发布的元数据，网关独立保存上游、模型映射�
 `/distribution` 已支持配置草稿登记、人工审核与 JSON 导出；设备回执、自动发布或回滚仍未接入。
 保存网关模型不会自动下发到 GoodBuddy。当前管理登记范围见[管理登记第一版](./management-register.md)。
 
-`/devices` 和共享中心沿用真实本地 API：前者展示登记设备及其发布数量，后者直接读取设备与发布记录，支持筛选、设备跳转和撤销已发布元数据；已移除组织示例页签。
+`/devices` 提供设备列表及“注册设置”，管理员可切换默认免验证／需要审批，批准、拒绝或停用设备。
+GB 使用独立设备凭据接口，控制台仍使用管理员会话；契约见[设备注册与审批](./device-registration.md)。
+共享中心读取设备与发布记录，支持筛选、设备跳转和撤销已发布元数据。
 来源模式与知识权限仅为声明，尚无正文服务。交互约定见
 [UI 设计](./ui-design.md)，本地 API 见[技术设计第 4.1 节](./technical-design.md#41-本地共享目录契约已实现)。
 

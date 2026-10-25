@@ -27,6 +27,9 @@ export function sharingRoutes(store: SharingStore) {
     onError: (context) => context.json({ code: 'PAYLOAD_TOO_LARGE', message: 'Request body exceeds 32768 bytes.', requestId: randomUUID() }, 413)
   }))
   routes.post('/devices/register', async (context) => context.json(await store.register(validateDevice(await body(context)))))
+  routes.get('/registration', async c => c.json(await store.registrationSettings()))
+  routes.put('/registration', async c => c.json(await store.setRegistrationMode((await body(c) as { mode?: unknown })?.mode)))
+  routes.post('/devices/:id/decision', async c => c.json(await store.decideDevice(validateId(c.req.param('id')), (await body(c) as { status?: unknown })?.status)))
   routes.get('/devices', async (context) => context.json({ devices: await store.devices() }))
   routes.get('/publications', async (context) => {
     const queries = context.req.queries()

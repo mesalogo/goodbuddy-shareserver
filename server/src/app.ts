@@ -11,6 +11,7 @@ import { createOfficeService } from './office/service.js'
 import { ConsoleStore } from './console-store.js'
 import { consoleRoutes } from './console-routes.js'
 import { AuthService } from './auth.js'
+import { deviceSharingRoutes } from './device-sharing-routes.js'
 
 export const office = createOfficeService()
 
@@ -20,7 +21,7 @@ export function createApp(store = new SharingStore(), gateway = new GatewayStore
 
   app.use('*', logger())
   app.use('/api/*', async (c, next) => {
-    if (c.req.path.startsWith('/api/v1/auth/') || c.req.path.startsWith('/api/v1/office/') || c.req.path.startsWith('/api/v1/gateway/') || (c.req.method === 'GET' && ['/api/v1/public/health', '/api/v1/public/ready'].includes(c.req.path))) await next()
+    if (c.req.path.startsWith('/api/v1/device-sharing/') || c.req.path.startsWith('/api/v1/auth/') || c.req.path.startsWith('/api/v1/office/') || c.req.path.startsWith('/api/v1/gateway/') || (c.req.method === 'GET' && ['/api/v1/public/health', '/api/v1/public/ready'].includes(c.req.path))) await next()
     else return admin(c, next)
   })
   app.use('/api', admin)
@@ -68,7 +69,7 @@ export function createApp(store = new SharingStore(), gateway = new GatewayStore
       },
       sharing: {
         mode: 'local-metadata-only',
-        authentication: auth.enabled ? 'admin-session' : 'none',
+        authentication: 'device-credential-and-registration-policy',
         persistence: process.env.DATABASE_URL ? 'postgresql-jsonb' : 'local-json',
         writerScope: 'single-process-single-store-per-data-directory',
         sourceMode: 'descriptive-only-no-content-sync',
@@ -112,6 +113,7 @@ export function createApp(store = new SharingStore(), gateway = new GatewayStore
   })
 
   app.route('/api/v1/sharing', sharingRoutes(store))
+  app.route('/api/v1/device-sharing', deviceSharingRoutes(store))
   app.route('/api/v1/console', consoleRoutes(consoleStore))
   app.route('/api/v1/gateway', gatewayRoutes(gateway, 120_000, admin))
   app.route('/api/v1/auth', auth.routes())

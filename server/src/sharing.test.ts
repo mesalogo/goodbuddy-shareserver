@@ -201,7 +201,7 @@ describe('persistent sharing API', () => {
       expect(await revoked.json()).toMatchObject({ status: 'revoked' })
       const ready = await fetch(`${listener.url}/api/v1/public/ready`)
       expect(await ready.json()).toMatchObject({ productionReady: false, sharing: {
-        authentication: 'none', sourceMode: 'descriptive-only-no-content-sync', permissionsEnforced: false
+        authentication: 'device-credential-and-registration-policy', sourceMode: 'descriptive-only-no-content-sync', permissionsEnforced: false
       } })
       const missing = await fetch(`${listener.url}/api/unknown`)
       expect(missing.status).toBe(404)
