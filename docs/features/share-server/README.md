@@ -11,10 +11,10 @@ ShareServer 是 GoodBuddy 设备共享网络的独立 Web 服务。它为一个�
 Office 区分服务端主存文档与显式的本地来源导入／回写模式。既有 Desktop 源文件、检查点和
 冲突契约用于后者；编辑会话结束不删除服务端主文档，检查点可用也不等于本地或 SSH 源文件已回写。
 
-Office 私有部署第一阶段仍待实现：先验证浏览器 DOCX 上传、编辑、保存与重新打开，默认本地
-文件存储，独立 Document Server 容器；范围见 [PRD](./prd.md#office-私有部署第一阶段待实现)，
-部署与协议以[技术设计第 10.1 节](./technical-design.md#101-私有部署第一阶段待实现)为准。
-拟议 `docker/compose.office.yaml` 尚不存在，现有 Compose 不包含 ONLYOFFICE。
+Office 私有部署已有统一 Node/Hono 后端模块、React 上传／编辑入口和 Compose overlay，采用本地
+文件存储和独立 Document Server；当前固定 Community 10.0，真实保存往返与普通插件探针结果见
+[10.0 验证记录](../../office-10-validation.md)。配置步骤见
+[Office 部署](../../office-deployment.md)，协议以技术设计第 10.1 节为准。
 
 ShareServer 不属于 Electron Main，不负责桌面端局域网发现，也不自动取得设备上的能力、
 文件、凭据或 SSH Host。
@@ -33,6 +33,8 @@ ShareServer 不属于 Electron Main，不负责桌面端局域网发现，也不
 | [实施进度](./progress.md) | 已验证实现、剩余生产工作与验证证据 |
 | [共享网络总体设计](../../../../goodbuddy/docs/architecture/share-network-architecture.md) | 跨端身份、能力、授权、任务、更新和协议权威（GoodBuddy 仓库） |
 | [Desktop Office 协同编辑](../../../../goodbuddy/docs/features/office-document-editing/README.md) | 文档 Tab、源文件回写、冲突和 AI 选区编辑（GoodBuddy 仓库） |
+| [Office 部署](../../office-deployment.md) | ShareServer、Web、Docs 的 IP 地址、环境变量和启动方法 |
+| [10.0 验证记录](../../office-10-validation.md) | 固定镜像上的真实浏览器保存、插件能力与验收边界 |
 
 工作空间协作场景由用户故事追踪；管理员、能力发布者、审计员等既有场景继续由 PRD 与逻辑
 设计覆盖。仓库已有控制台交互原型、本地共享目录服务和真实转发的本地模型网关；目录持久化
@@ -54,7 +56,7 @@ GoodBuddy 注册和发布的元数据，网关独立保存上游、模型映射�
 启动方法及客户端 Base URL 见[根 README](../../../README.md#local-model-gateway)，接口、存储和限制见
 [技术设计第 4.2 节](./technical-design.md#42-本地模型网关契约已实现)。
 
-`/documents` 显示待接入说明，没有示例文档或 OnlyOffice 模拟检查。`/distribution` 同样为待接入占位，
+`/documents` 提供真实 DOCX 上传、列表、编辑及保存状态，Office 服务需要单独启用。`/distribution` 为待接入占位，
 无配置草稿、设备回执、发布或回滚；保存网关模型
 不会自动下发到 GoodBuddy。交互见 [UI 设计第 16.1 节](./ui-design.md#161-goodbuddy-服务入口)。
 

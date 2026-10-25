@@ -13,7 +13,7 @@
 
 基于 GoodBuddy 当前源码的适配依据、正常网关接入和基础服务实施顺序见
 [后端基础设计](./backend-foundation-design.md)。B1 已实现、验收部分完成，B2 至 B6 待实现；第 4.1、4.2 节记录
-当前已实现 API，组织与 Office 章节仍是目标设计，不代表现有菜单已有对应服务。
+当前已实现 API；Office 首期实现见第 10.1 节，组织与后续 Desktop Office 章节仍是目标设计。
 
 ## 1. 仓库与运行边界
 
@@ -41,7 +41,7 @@ goodbuddy-shareserver/
   docker/                # Dockerfile、Compose 与构建忽略规则
 ```
 
-以下是后续生产实现的建议模块结构，尚未创建，不代表已实现：
+以下是后续生产实现的建议模块结构，除 `office/` 外尚未创建，不代表已实现：
 
 ```text
 goodbuddy-shareserver/
@@ -70,11 +70,11 @@ goodbuddy-shareserver/
 依赖与命令统一由根 `package.json` 管理，不拆分 workspace。Vite 输出到 `dist/web/`；
 服务端 TypeScript 以仓库根为 `rootDir`，输出到 `dist/server/`，因此启动入口为
 `dist/server/server/src/index.js`，共享模块位于 `dist/server/shared/`。根目录运行
-`npm start` 或容器启动后，Hono 同源托管 `dist/web/`。Docker 配置仍在 `docker/`，
+`npm start` 或后端容器仅运行 API。独立 Web 容器托管 `dist/web/`，同源代理 `/api/` 至后端。Docker 配置仍在 `docker/`，
 Compose 的 `../data` 仍映射仓库根 `data/` 到容器 `/app/data`。
 
 仓库根目录包含控制台交互原型、本地共享目录和模型网关。Hono 提供健康、就绪、
-界面快照、原型操作确认、真实元数据 API 和网关转发，并同源托管 React/Vite Web 控制台；它不依赖 Electron 的
+界面快照、原型操作确认、真实元数据 API、Office 与网关转发；React/Vite Web 控制台独立构建部署。它不依赖 Electron 的
 `src/shared`。本地目录与网关使用独立 JSON 文件持久化，契约见第 4.1、4.2 节。当前尚未建立生产数据库、组织认证、设备控制连接，因此也不提前创建空的
 `packages/share-protocol`。进入真实 Desktop 协议实现时，服务端和 Desktop 共同依赖
 独立发布的 `share-protocol` 协议包，具体归属在真实协议实现时确定；
@@ -389,48 +389,84 @@ Release catalog 使用独立签名域。服务器不能重打包已签名 payloa
 
 ## 10. Office 编辑服务
 
-### 10.1 私有部署第一阶段（待实现）
+<a id="101-私有部署第一阶段待实现"></a>
+
+### 10.1 私有部署第一阶段（已实现 DOCX 链路）
+
+**2026-10-25 架构修正：** Office 已统一到 `server/src/office/` Node.js/Hono 后端，
+React 位于 `web/`，Nginx 将同源 API 统一代理至 ShareServer；不再维护 Python 后端。保留旧锚点供已有链接使用，
+首期真实 Document Server 保存往返已验证，剩余恢复能力及跨环境验收仍在推进。部署操作见
+[Office 部署](../../office-deployment.md)，验证证据见 progress。
+
+实际接口：
+
+| 方法与路径 | 用途 |
+| --- | --- |
+| `GET /api/v1/office/config` | 启用状态、上限、Docs URL、formats 和 versionedDownload，不返回秘密 |
+| `GET /api/v1/office/documents` | 文档列表 |
+| `POST /api/v1/office/documents?name=文件名.docx` | 原始 DOCX 请求体上传（非 multipart） |
+| `GET /api/v1/office/documents/{id}` | 已持久化 revision、size、digest 与轮次状态 |
+| `GET /api/v1/office/documents/{id}/download?revision=N` | 下载指定已提交版本；不传 revision 时取最新，返回 ETag 摘要与 X-Office-Revision |
+| `POST /api/v1/office/documents/{id}/editor` | 创建／复用轮次，返回签名配置与 scriptUrl |
+| `POST /api/v1/office/documents/{id}/save` | 串行 forcesave，userdata 绑定 key 和序号 |
+| `POST /api/v1/office/documents/{id}/reconcile` | 向 Docs 发 info 命令，请求回调核对重启轮次 |
+| `GET /internal/office/{id}/{key}/source?access=…` | 固定轮次源文件；检查出站 JWT URL 与随机凭据 |
+| `POST /internal/office/{id}/{key}/callback` | JWT 保护的回调，内容须与签名 payload 相同 |
+
+默认上传／保存上限 20 MiB，存储额度 1 GiB，超时 30 秒。状态为 `editing/saving/saved/closed/error/recovering`。
+指定不存在的 revision 返回 404，非正整数返回 422。版本引用随文档元数据原子发布；旧文档可以
+下载当前版本，升级前未记录的历史 revision 不会猜测映射。`/office/editor?document=<id>` 是
+Desktop 简洁页面，`/documents` 保留文档库。编辑页只向宿主提供 ready／dirty DOM 状态，
+没有通用 Electron preload；dirty=false 不等同于服务器或源文件已保存。
+单个 ShareServer 写进程内串行提交独立 JSON 元数据；文件 fsync、rename 后再原子提交元数据。
+不支持多个容器共写同一 Office 目录。
+重复 forcesave 按 userdata 去重，最终保存后同轮迟到通知不改变版本；换轮后旧 key 返回 409。
+启动时未结束轮次进入 recovering，收到 Docs 状态回调后确认；未知缓存不自动开新轮。
+手动恢复工具、版本清理、真实多窗口与断网行为验收待完成。回调兼容 header 和 body JWT，
+去除 token 包装与已验证的 JWT 时间字段后，业务字段必须与签名 payload 完全相同。
 
 本节是首期容器、配置、接口和持久化的权威设计，范围以 PRD 第 3 节为准。当前 `/documents`
-显示待接入说明，仓库只有 ShareServer 的 `docker/compose.yaml`，没有 Office overlay 或真实编辑链路。
-第一阶段采用单个 ShareServer 进程、独立 Document Server 和本地文件系统，不新增身份源、数据库、
+连接统一 ShareServer API，`docker/compose.office.yaml` 叠加启用模块。第一阶段采用单个 Node 进程、
+独立 Document Server 和本地文件系统，不新增身份源、数据库、
 S3/MinIO、独立 callback worker 或启动 code／安全 Cookie 交换。仅适用于可信私有网络；当前无认证，
 可访问服务者可操作试验文档，随机文档 ID 和 JWT 均不能据此宣称用户授权或组织隔离。
 
 #### 容器与地址
 
-后续实现拟增加可选 `docker/compose.office.yaml`，与现有 Compose 叠加使用；该文件尚未创建，
-现有默认启动不启用 Office。Document Server 与 Hono 分进程、分容器，通过 Docker 网络 HTTP
-取源文件和回传结果。镜像 edition、固定版本 tag／digest 待选型验证，不使用浮动 latest 作为验收基线。
-Developer Edition 仍是完整产品候选；私有 Web 编辑的许可证与后续 Desktop／Agent（含 Automation
+可选 `docker/compose.office.yaml` 与现有 Compose 叠加使用，现有默认启动不启用 Office。
+Document Server 与 ShareServer 分进程、分容器，通过 Docker 网络 HTTP
+取源文件和回传结果。默认固定 Community 10.0 的已验证 digest，详见部署文档与 progress。
+私有 Web 编辑的许可证与后续 Desktop／Agent（含 Automation
 API 或插件）的授权分别核验，不由容器能启动推定已获授权或功能兼容。
 
-ShareServer 继续绑定宿主 `data/` 到 `/app/data`，Office 文件放在其中的 `office/`。Document Server
-所需数据、日志等挂载使用独立宿主目录（拟为 `data/onlyoffice/` 下各子目录），按选定镜像确认挂载点
+ShareServer 绑定宿主 `data/` 到 `/app/data`；Office 使用其中的 `/app/data/office`。Document Server
+所需数据、日志等挂载使用独立宿主目录（`data/onlyoffice/` 下各子目录），按选定镜像确认挂载点
 和 UID/GID，不使用 named volumes，也不把 ShareServer 文档目录挂给它写入。主文档只由 ShareServer
 提交；Document Server 缓存不作为主文档备份。备份需包含 Office 文件及其版本元数据，可停写后复制。
 
-以下是拟定配置项的语义，尚未加入环境变量或配置文件：
+以下配置已加入环境变量，具体名称、默认值与启动方法见部署文档：
 
 | 配置 | 谁使用及用途 |
 | --- | --- |
 | Office 启用开关 | ShareServer；默认关闭，故障不影响其他服务 |
 | ShareServer 浏览器 URL | 浏览器访问 Web 与同源 API |
 | Document Server 浏览器 URL | 浏览器加载 `web-apps/apps/api/documents/api.js`、编辑器及其连接；必须在客户端可达 |
-| ShareServer 内部 origin | Document Server 下载源文件、发送 callback；例如 Docker 服务地址 `http://shareserver:8787` |
-| Document Server 内部 origin | ShareServer 请求保存输出或命令；例如拟定服务名 `http://onlyoffice` |
+| ShareServer 内部 origin | Document Server 访问统一后端下载源文件、发送 callback；默认 `http://shareserver:8787` |
+| Document Server 内部 origin | ShareServer 请求保存输出或命令；默认 `http://onlyoffice` |
 | JWT 共享秘密 | 两服务配置一致，仅保存在部署环境或秘密文件，不返回原始秘密给浏览器 |
-| 上传／保存大小、请求超时和存储额度 | 设置有限值，首期只允许 DOCX；实现前确定默认值并在 UI 展示上传上限 |
+| 上传／保存大小、请求超时和存储额度 | 默认值见本节接口说明及部署文档，首期只允许 DOCX；UI 展示上传上限 |
 
 浏览器地址与容器内部地址分开配置，不能把 Docker 服务名当作用户浏览器可解析的域名，也不能把
+客户端 localhost 当远端主机。内网仅有主机 IP、无域名是正常支持场景，浏览器与 GB 使用
+`http://<主机IP>:8088` 和 `http://<主机IP>:8080`，须实测插件跨端口 CORS 与保存回调。不能把
 容器内 localhost 当另一服务。反向代理需支持编辑器连接；HTTPS 页面所用编辑器地址也需 HTTPS，
 按实际部署配置 CSP。ONLYOFFICE 对私有地址请求的过滤开关、默认值及例外配置须查验选定版本，
 只允许所需的 ShareServer 内部访问，不假设容器网络互通就能下载文件。
 
 #### 最小接口与协议
 
-拟在 `/api/v1/office/` 提供 DOCX 上传、文档列表／详情及按文档 ID 打开编辑会话的接口，供同源
-Web 使用；在 `/internal/office/` 提供按会话关联的源文件读取和 callback。具体路径在实现时定版，
+在 `/api/v1/office/` 提供 DOCX 上传、文档列表／详情及按文档 ID 打开编辑会话的接口，供同源
+Web 使用；在 `/internal/office/` 提供按会话关联的源文件读取和 callback。具体路径以上方实际接口表为准，
 不复用第 10.2 节的 Desktop 凭据流程。服务端生成文档 ID、存储文件名和会话 ID，记录基准 revision、
 编辑轮次与 `document.key`；客户端只提交 ID，不接收绝对路径、路径片段或任意源文件 URL。
 上传按流限制字节数并验证 DOCX 实际格式，不仅检查扩展名／MIME；返回的保存文件同样限制大小和格式。
@@ -450,8 +486,8 @@ Web 使用；在 `/internal/office/` 提供按会话关联的源文件读取和 
 
 #### 持久化与保存确认
 
-复用单进程文件存储方式，但 Office 使用独立元数据，不混入 `sharing.json`。每个文档的保存按队列
-串行提交：先将输出写入同一文件系统的临时文件，验证并计算 SHA-256，再同步、rename 为不可变
+复用单进程文件存储方式，但 Office 使用独立元数据，不混入 `sharing.json`。当前通过进程内锁
+串行提交：有界读取输出、校验格式与摘要，再写同一文件系统的临时文件，同步、rename 为不可变
 版本文件；随后以临时文件、同步、原子 rename 提交该文档的元数据，包含当前 revision、文件引用、
 摘要、轮次状态和已处理保存记录。元数据是发布点，读取只跟随已提交引用；崩溃留下的未引用文件
 不成为当前版本，重启从元数据恢复，坏元数据报错而非清空。文件与目录同步要求随宿主文件系统验证。
@@ -460,9 +496,9 @@ Web 使用；在 `/internal/office/` 提供按会话关联的源文件读取和 
 ID，也不以临时 URL 作为唯一幂等依据。首期由服务端触发的 forcesave 串行发起，用该版本支持的
 `userdata` 关联单调保存序号；首期不启用额外的定时／编辑器按钮 forcesave，后续启用前须核验其
 身份与排序，不能识别的并发保存不盲目覆盖。最终保存与迟到快照的优先级见逻辑设计第 8.2 节，协议字段映射及重复、
-乱序用例是实现前的验证项。活动 key 不因 forcesave 或持久化 revision 增长而改变。
+乱序用例的已测范围见实施进度。活动 key 不因 forcesave 或持久化 revision 增长而改变。
 
-首期在 Hono 回调处理中完成持久化后才返回协议成功响应 `{"error":0}`；失败返回协议错误并保留
+在 ShareServer 回调处理中完成持久化后才返回协议成功响应 `{"error":0}`；失败返回协议错误并保留
 上一个成功版本。不能先确认再在内存中异步写盘。未来若改为异步处理，必须先形成可恢复的持久任务
 才确认接收，且另行报告实际保存结果；本阶段不为此引入新 worker。成功记录与版本引用一同提交，
 确认丢失后重复 callback 不重复增版。服务重启不自动轮换仍未收束的 key；先按持久轮次状态核对
@@ -485,10 +521,11 @@ Document Server，无法确认时阻止覆盖并提示待确认。
 
 本节及第 10.3 节的上传、检查点下载和 `source-commit` 契约描述显式的本地来源导入／回写
 模式，继续保留 Desktop／SSH 源文件基准校验和冲突处理。服务端主存模式不要求本地回写确认；
-其具体存取接口未在本次演示中实现，不由会话 API 推定已经具备文档持久化。
+当前主存文档上传、下载和持久化已按第 10.1 节实现；归属转移、组织权限及 Desktop 回写尚未实现。
 
-目标设计集成 ONLYOFFICE Docs Developer Edition，但不把 Document Server 代码并入 Hono
-进程。后续组织部署可扩展为以下结构，S3 和独立 worker 不属于第一阶段依赖：
+当前以 Community 10.0 普通插件路径作为 Desktop DOCX 接入依据；Developer Edition 与 Automation
+API 的额外能力另行验证。Document Server 保持独立进程。后续组织部署可扩展为以下结构，
+S3 和独立 worker 不属于第一阶段依赖：
 
 ```text
 GoodBuddy Desktop -> TLS reverse proxy -> ShareServer Office API
@@ -500,6 +537,11 @@ GoodBuddy Desktop -> TLS reverse proxy -> ShareServer Office API
 Desktop 经 ShareServer 获取编辑配置，编辑器仍需可达的 Document Server 浏览器 URL。
 内部地址由部署配置确定，源文件和 callback URL 会进入编辑器配置，不承诺对浏览器隐藏；
 JWT 原始密钥和对象存储凭据仅由服务端保管。正式采用前必须完成许可证和桌面分发审核。
+
+下列是未实现的组织服务目标接口；GB 首次接入沿第 10.1 节 documents 资源补实际缺口，
+不为旧接口命名重写服务。内嵌布局、指定版本及摘要下载、编辑器状态桥和结束／清理语义仍需补齐。
+GB 默认阅读与显式编辑的边界见
+[Desktop 技术设计](../../../../goodbuddy/docs/features/office-document-editing/technical-design.md)。
 
 ```text
 POST   /api/v1/office/sessions
@@ -531,13 +573,18 @@ ShareServer 随后通过设备事件通道通知 Desktop。只有 Desktop 下载
 
 ### 10.4 编辑器插件和 AI
 
-ShareServer 托管固定版本的 GoodBuddy ONLYOFFICE 插件，并在会话配置中精确启用。插件只交换
+目标由 ShareServer 托管固定版本的 GoodBuddy ONLYOFFICE 插件，并在会话配置中精确启用。插件只交换
 有界选区描述、文档 revision、白名单编辑操作和非正文状态事件。它不能接收 JavaScript、宏、
 任意 ONLYOFFICE 方法名或 ShareServer 管理 token。
 
-AI 请求仍由 GoodBuddy Desktop 的 Conversation 和 Runtime 执行。Ask 只能生成建议；Execute
-成功取得绑定 session、revision 和选区的短期 Grant 后，插件才可在单个撤销上下文中应用修改。
-ShareServer 负责中继有界事件，不持久化选区正文、Prompt 或模型输出。
+AI 请求仍由 GoodBuddy Desktop 的 Conversation 和所选 Runtime 执行。遵循用户请求和已启用能力，
+只要建议时不写入；要求修改时，将请求绑定原文档与目标范围，应用前确认人工修改没有使目标失效。
+不引入 Ask／Execute 模式。ShareServer 的计划职责是中继有界事件，不持久化选区正文、Prompt 或模型输出。
+
+`scripts/office-e2e/plugin` 是验证夹具；生产插件位于 `server/src/office/plugin`。已测 `GetSelectedText`、`PasteText` 和单次撤销，
+没有生产插件注册、消息中继或模型往返。插件配置跨 Docs origin 读取，需要为插件资源设置精确 CORS。
+服务器持久化 revision 不能代表编辑器未保存内容版本，不能用它单独判断 AI 结果能否安全应用。
+正式插件不向模型暴露探针的任意方法调用接口；验证范围见 [10.0 记录](../../office-10-validation.md)。
 
 ### 10.5 生命周期和清理
 
@@ -639,7 +686,7 @@ TypeScript、Tailwind CSS 和 Radix。部署已有非 root 多阶段 Docker 镜�
 
 `/model-gateway` 的 `gateway-page.tsx` 使用第 4.2 节真实 API 保存配置、发现模型、发起非流式
 测试和读取审计；测试正文仅在组件内存，卸载取消在途请求。`/distribution` 只显示待接入说明
-与网关链接。文档和其他未实现模块显示待接入状态，没有示例列表或模拟操作。
+与网关链接。文档通过统一后端的 Office 模块接入；其他未实现模块显示待接入状态，没有示例列表或模拟操作。
 
 服务端仍保留旧 `/api/v1/web/prototype/*` 接口及 fixture，但它们已退出控制台调用路径，不能
 作为组织业务 API。`/api/v1/public/ready` 仍报告 `mode=interactive-prototype`、

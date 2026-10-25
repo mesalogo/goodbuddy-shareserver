@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { pages } from './app-config'
 import { AppShell } from './components/app-shell'
 import { SharingCenter } from './components/sharing-center'
@@ -7,10 +7,16 @@ import { GatewayPage } from './components/gateway-page'
 import { DistributionPage } from './components/distribution-page'
 import { DevicesPage } from './components/devices-page'
 import { UnavailablePage } from './components/unavailable-page'
+import { DocumentsPage } from './components/documents-page'
 
 export default function App() {
+  return <BrowserRouter><ApplicationRoutes /></BrowserRouter>
+}
+
+function ApplicationRoutes() {
+  const location = useLocation()
+  if (location.pathname === '/office/editor') return <DocumentsPage embedded />
   return (
-    <BrowserRouter>
       <AppShell>
         <Routes>
           {pages.map((page) => (
@@ -21,6 +27,7 @@ export default function App() {
                 page.path === '/' ? <OverviewPage />
                   : page.path === '/capabilities' ? <SharingCenter />
                     : page.path === '/model-gateway' ? <GatewayPage />
+                    : page.path === '/documents' ? <DocumentsPage />
                     : page.path === '/distribution' ? <DistributionPage />
                       : page.path === '/devices' ? <DevicesPage />
                         : <UnavailablePage title={page.title} description={page.description} boundary={page.boundary ?? '该模块的身份、权限和持久化接口尚未接入，因此当前不显示示例数据，也不提供不会生效的操作。'} next={page.next} tabs={page.tabs?.map(({ label, dataKey }) => ({ label, key: dataKey }))} />
@@ -30,6 +37,5 @@ export default function App() {
           <Route path="*" element={<Navigate replace to="/" />} />
         </Routes>
       </AppShell>
-    </BrowserRouter>
   )
 }

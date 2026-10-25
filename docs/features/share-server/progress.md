@@ -2,6 +2,66 @@
 
 ## 当前状态
 
+### 2026-10-25：统一 Node 后端与无域名内网部署
+
+- 按用户纠正，将 Office 从独立 FastAPI 迁入 `server/src/office/`，与模型网关、共享 API 共用
+  ShareServer 进程。`web/` 独立构建为 Nginx 前端，所有 API 代理至同一 Node 后端。
+- Compose 使用 `web + shareserver + postgres + onlyoffice`；去除 Python 服务与镜像定义。
+  文档 ID、元数据、revision 与版本文件保持一致；主机迁移前后 4 份文档逐一下载比对 SHA-256 通过。
+- 两边 AGENTS.md 增加仅有主机 IP、无域名的开发验收要求。实际部署入口为
+  `http://192.168.0.23:8088`，Docs 为 `http://192.168.0.23:8080`，不依赖 DNS。
+- 真实 Electron 文档面板通过上传、编辑、生产插件读取／替换／撤销／过期目标拒绝、保存回源文件、
+  外部冲突保护和另存为。修复统一后端安全头阻止 Docs 跨端口插件 iframe 的问题。
+- 原 Python 服务测试迁入 Vitest；历史 Python 测试数量不再作为当前后端验证结果。
+  浏览器探针移至 `scripts/office-e2e/`，Python 仅作为可选测试驱动。
+- GB 完整构建应用通过选区 → 会话队列 → Model Runtime → 应用回复 → 源文件回写。
+  最终代码复测后累计本地确定性模型 2 次请求、外部供应商 0 次；具体边界见 GB 实施进度。
+- 最终验证：118 项 Vitest、lint、类型检查、前后端构建与 Compose 校验通过；主机重启统一后端
+  后，13 份现存文档（含本轮测试副本）的 revision 与下载摘要一致。旧 Office API/Web 容器已移除，
+  数据目录保留，四个正式 Compose 服务继续运行。迁移前已有文档在 Node 重启后通过真实 Chromium
+  重新打开，编辑器 ready 检查通过。
+
+### 2026-10-25：对齐 GoodBuddy 最新预览实验与接入文档
+
+- GB 干净工作区经 `git pull --ff-only` 从 `849badf7` 更新到 `c8ef4ed4`；已查看新增本地预览
+  Demo 的源码、依赖和测试脚本。Demo 未接通 ONLYOFFICE，本轮未重跑其 Windows 浏览器验证。
+- 两边文档对齐“本地阅读／显式编辑”、Community 10.0 普通插件路径、现有 documents API 与后续
+  组织会话目标；修正旧镜像、旧内部地址、状态收束描述和已过时的 Ask／Execute 用语。
+- GB 侧进度和后续边界见[Office 实施进度](../../../../goodbuddy/docs/features/office-document-editing/progress.md)。
+  本轮仅更新文档，没有新增产品实现或扩大此前测试结论。
+
+### 2026-10-25：Community 10.0 接入前验证
+
+- 按用户指定将 Office Compose 与环境模板固定到 `onlyoffice/documentserver:10.0` 的已拉取 digest。
+  实际包版本为 10.0.0-169；原有运行服务未升级。
+- 独立测试栈完成真实 DOCX 编辑、forcesave、最终保存、API 重启与编辑器重开；普通插件完成
+  未保存选区读取、局部替换、一次撤销、中文修改保存重开和无修改关闭。
+- 新增可复现浏览器探针（现位于 `scripts/office-e2e/browser_probe.py`）。环境、方法、证据及未验收范围统一见
+  [10.0 验证记录](../../office-10-validation.md)。Python 14 项、Web/Hono 104 项、lint、类型检查和构建通过。
+- 这次验证建立了普通插件接入依据；GoodBuddy 文档页签、源文件回写和真实 AI 编辑仍待实现。
+
+### 2026-10-25：FastAPI Office 首期接入与真实编辑保存
+
+- 新增独立 `office/` FastAPI 服务；React `/documents` 提供 DOCX 上传、文档列表、编辑器、
+  服务器保存、状态轮询与已保存版本下载。`docker/compose.office.yaml` 新增 Office API、
+  静态 Web/Nginx 与 ONLYOFFICE，保持前后端独立构建。配置说明见 [Office 部署](../../office-deployment.md)。
+- 文档主存储采用宿主目录、不可变文件版本和原子 JSON 元数据；单 worker 文件锁，落盘后确认。
+  实现 JWT、固定来源下载、格式／大小限制、forcesave 序号、重复回调去重、最终保存优先和
+  重启待确认轮次。真实 Docs 9.1.0 回调使用 body JWT，已补充 header/body 兼容与严格内容校验。
+- 验证：14 项 Python 测试通过，含真实 HTTP 上传、进程重启及下载；104 项 Web/Hono 测试通过；
+  类型检查、lint、生产构建、两个新增 Docker 镜像构建及 Compose 配置校验通过。修正既有
+  `page-tabs.tsx` 未使用变量以通过 lint。Vitest 的 Vite 关闭期间依赖扫描有日志噪声，测试退出成功。
+- 真实浏览器：Playwright/Chromium 连接隔离 Nginx、FastAPI、Docs 容器，上传 DOCX，编辑输入
+  `browser-save-roundtrip`，手动保存得到 revision 2，关闭后最终保存得到 revision 3；下载并解析
+  DOCX 确认文字，重启使用宿主挂载的 FastAPI 容器后再次下载及重新打开成功。回调、文件读取
+  与保存输出下载由真实 Docs 发起，非模拟确认。测试未使用项目现有数据。
+- 验证镜像：`onlyoffice/documentserver-de:9.1.0`，digest
+  `sha256:1fe7a9919202ee05575a2b78e5ddfb7a1753cc9dc1efbd80a668bb4bf232bdfe`，Developer 试用模式，
+  HTTP 本机入口 `18088`（Web）、`18080`（Docs），内部 `office-api:8000` 与 `onlyoffice:80`。
+  当时 overlay 固定此 digest，现已由上方 10.0 配置替代；HTTPS 域名、多窗口、断网及复杂文档仍需独立验收。
+- 尚无 Office 用户／组织授权、版本自动清理、故障轮次人工恢复 UI、GoodBuddy Desktop Tab 和 AI
+  插件；当前只面向受控私有网络，`productionReady` 保持 false。原有 Hono 回环管理限制仍生效。
+
 ShareServer 包含 Web 控制台、可持久化的本地共享目录和真实模型网关。GoodBuddy 已能注册
 设备、发布与撤销元数据，Web 能查看真实目录。模型网关支持 OpenAI 兼容上游的发现、映射与
 Chat Completions 转发，以及 B1 加密凭据、访问 Key 和模型授权。B1 代码已实现、验收部分完成；

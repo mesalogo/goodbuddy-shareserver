@@ -1,4 +1,3 @@
-import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import { logger } from 'hono/logger'
 import { secureHeaders } from 'hono/secure-headers'
@@ -8,19 +7,26 @@ import { SharingStore } from './sharing-store.js'
 import { GatewayStore } from './gateway-store.js'
 import { gatewayRoutes } from './gateway-routes.js'
 import { localAdmin, type SocketBindings } from './admin-boundary.js'
+import { createOfficeService } from './office/service.js'
+
+export const office = createOfficeService()
 
 export function createApp(store = new SharingStore(), gateway = new GatewayStore()) {
   const app = new Hono<{ Bindings: SocketBindings }>()
 
   app.use('*', logger())
   app.use('/api/*', async (c, next) => {
-    if (c.req.path.startsWith('/api/v1/gateway/') || (c.req.method === 'GET' && ['/api/v1/public/health', '/api/v1/public/ready'].includes(c.req.path))) await next()
+    if (c.req.path.startsWith('/api/v1/office/') || c.req.path.startsWith('/api/v1/gateway/') || (c.req.method === 'GET' && ['/api/v1/public/health', '/api/v1/public/ready'].includes(c.req.path))) await next()
     else return localAdmin(c, next)
   })
   app.use('/api', localAdmin)
   app.use(
     '*',
-    secureHeaders({
+    async (c, next) => {
+      // Docs embeds the plugin across ports/origins. Its route supplies a
+      // narrowly scoped CSP; the general same-origin frame policy cannot apply.
+      if (c.req.path.startsWith('/api/v1/office/plugin/')) return next()
+      return secureHeaders({
       contentSecurityPolicy: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
@@ -29,7 +35,8 @@ export function createApp(store = new SharingStore(), gateway = new GatewayStore
         connectSrc: ["'self'"]
       },
       crossOriginEmbedderPolicy: false
-    })
+      })(c, next)
+    }
   )
 
   app.get('/api/v1/public/health', (context) =>
@@ -48,22 +55,22 @@ export function createApp(store = new SharingStore(), gateway = new GatewayStore
       gateway: {
         mode: 'local-openai-compatible',
         authentication: 'scoped-bearer-key',
-        persistence: 'local-json',
+        persistence: process.env.DATABASE_URL ? 'postgresql-jsonb' : 'local-json',
         credentials: 'aes-256-gcm-and-legacy-environment-references',
         writerScope: 'single-process-single-store-per-data-directory',
         networkBoundary: 'direct-loopback-admin-authenticated-inference',
         organizationAclEnforced: false,
-        storageChecked: false
+        storageChecked: Boolean(process.env.DATABASE_URL)
       },
       sharing: {
         mode: 'local-metadata-only',
         authentication: 'none',
-        persistence: 'local-json',
+        persistence: process.env.DATABASE_URL ? 'postgresql-jsonb' : 'local-json',
         writerScope: 'single-process-single-store-per-data-directory',
         sourceMode: 'descriptive-only-no-content-sync',
         permissionsEnforced: false,
         networkBoundary: 'trusted-local-test-service',
-        storageChecked: false
+        storageChecked: Boolean(process.env.DATABASE_URL)
       }
     })
   )
@@ -102,6 +109,7 @@ export function createApp(store = new SharingStore(), gateway = new GatewayStore
 
   app.route('/api/v1/sharing', sharingRoutes(store))
   app.route('/api/v1/gateway', gatewayRoutes(gateway))
+  app.route('/', office.routes)
 
   app.all('/api/*', (context) => context.json({
     code: 'NOT_FOUND', message: 'API route not found.', requestId: crypto.randomUUID()
@@ -109,9 +117,6 @@ export function createApp(store = new SharingStore(), gateway = new GatewayStore
   app.all('/api', (context) => context.json({
     code: 'NOT_FOUND', message: 'API route not found.', requestId: crypto.randomUUID()
   }, 404))
-
-  app.use('*', serveStatic({ root: './dist/web' }))
-  app.get('*', serveStatic({ path: './dist/web/index.html' }))
 
   return app
 }

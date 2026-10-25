@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body>
+<script>
+'use strict';
+const docsOrigin = __DOCS_ORIGIN__;
+const script = document.createElement('script');
+script.src = docsOrigin + '/sdkjs-plugins/v1/plugins.js';
+script.onload = () => {
+  let epoch = 0;
+  let ready = false;
+  let busy = false;
+  const method = (name, args) => new Promise(resolve => window.Asc.plugin.executeMethod(name, args, resolve));
+  window.Asc.plugin.init = () => {
+    ready = true;
+    window.Asc.plugin.attachEditorEvent('onTargetPositionChanged', () => { epoch += 1; });
+    window.top.postMessage({type: 'gb-office-ready'}, location.origin);
+  };
+  window.addEventListener('message', async event => {
+    if (event.source !== window.top || event.origin !== location.origin || !ready) return;
+    const request = event.data;
+    if (!request || request.type !== 'gb-office-command' || typeof request.id !== 'string') return;
+    const reply = value => window.top.postMessage({type: 'gb-office-result', id: request.id, ...value}, location.origin);
+    if (busy) { reply({error: '选区正在处理，请稍后重试'}); return; }
+    busy = true;
+    try {
+      if (!['selection', 'replace'].includes(request.action)) throw new Error('不支持的编辑操作');
+      const before = epoch;
+      const text = await method('GetSelectedText', [{Numbering: false, Math: false}]);
+      if (typeof text !== 'string' || !text.trim() || text.length > 32000) throw new Error('请选中 1–32000 字的文本');
+      if (before !== epoch) throw new Error('选区已改变，请重新选择');
+      if (request.action === 'selection') { reply({result: {text, epoch}}); return; }
+      if (request.selection?.epoch !== epoch || request.selection?.text !== text) throw new Error('选区或文档已改变，请重新发起编辑');
+      if (typeof request.text !== 'string' || !request.text.trim() || request.text.length > 32000) throw new Error('替换文字长度不符合要求');
+      await method('PasteText', [request.text]);
+      epoch += 1;
+      reply({result: true});
+    } catch (error) { reply({error: String(error.message || error)}); }
+    finally { busy = false; }
+  });
+};
+document.head.appendChild(script);
+</script></body></html>

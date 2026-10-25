@@ -15,7 +15,6 @@ export function PageTabs({
   onChange: (key: string) => void
 }) {
   const id = useId()
-  const activeIndex = Math.max(0, tabs.findIndex((tab) => tab.key === active))
   return <div role="tablist" aria-label={`${title}分类`} className="mb-5 flex max-w-full gap-1 overflow-x-auto rounded-xl border border-white/[0.08] bg-white/[0.025] p-1">
     {tabs.map((tab, index) => <button
       key={tab.key}

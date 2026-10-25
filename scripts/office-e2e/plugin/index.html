@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<script src="__DOCS_ORIGIN__/sdkjs-plugins/v1/plugins.js"></script>
+</head><body><script>
+// Test fixture only. No GB IPC, model access, or production message bridge.
+window.Asc.plugin.init = function () { window.probeReady = true; };
+window.Asc.plugin.button = function () {};
+window.probeMethod = (name, args) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error('Plugin method timeout: ' + name)), 10000);
+  window.Asc.plugin.executeMethod(name, args, result => {
+    clearTimeout(timer);
+    resolve(result);
+  });
+});
+</script></body></html>

@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { GatewayAccessKey, GatewayAudit, GatewayModel, GatewayModelInput, GatewaySnapshot, GatewayUpstream, GatewayUpstreamInput } from '../../shared/gateway.js'
 import { decryptCredential, encryptCredential, type EncryptedCredential } from './gateway-credentials.js'
+import { databaseEnabled, readState, writeState } from './database.js'
 
 export class GatewayError extends Error {
   constructor(public status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 500 | 502 | 503 | 504, public code: string, message = 'Gateway request failed.') {
@@ -136,15 +137,37 @@ export class GatewayStore {
   private run<T>(operation: (state: State) => T | Promise<T>, write = false): Promise<T> {
     const result = this.queue.then(async () => {
       if (!this.state) {
+        if (databaseEnabled()) {
+          const stored = await readState<unknown>('gateway')
+          if (stored !== null) {
+            try { this.state = parseState(stored) }
+            catch { throw new GatewayError(503, 'GATEWAY_STORAGE_UNAVAILABLE') }
+          } else {
+            try {
+              this.state = parseState(JSON.parse(await readFile(this.filename, 'utf8')))
+              await writeState('gateway', this.state)
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new GatewayError(503, 'GATEWAY_STORAGE_UNAVAILABLE')
+              this.state = { version: 2, upstreams: [], models: [], audits: [], accessKeys: [] }
+              await writeState('gateway', this.state)
+            }
+          }
+        } else {
         try { this.state = parseState(JSON.parse(await readFile(this.filename, 'utf8'))) }
         catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new GatewayError(503, 'GATEWAY_STORAGE_UNAVAILABLE')
           this.state = { version: 2, upstreams: [], models: [], audits: [], accessKeys: [] }
         }
+        }
       }
       const next = structuredClone(this.state)
       const value = await operation(next)
       if (write) {
+        if (databaseEnabled()) {
+          try { await writeState('gateway', next); this.state = next }
+          catch { throw new GatewayError(503, 'GATEWAY_STORAGE_UNAVAILABLE') }
+          return value
+        }
         const temporary = `${this.filename}.${randomUUID()}.tmp`
         try {
           await mkdir(this.directory, { recursive: true })

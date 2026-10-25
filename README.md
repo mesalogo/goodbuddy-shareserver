@@ -44,9 +44,10 @@ Source and feature documentation were extracted from GoodBuddy commit
 - Local model gateway at `/model-gateway`: persistent upstreams and model aliases,
   encrypted upstream credentials, scoped client access keys, real model discovery,
   request testing, JSON/SSE forwarding, and metadata audits.
-- `/documents` and `/distribution` are placeholders without document operations,
-  OnlyOffice checks, drafts, releases or rollback; saving gateway models does not
-  deliver configuration to GoodBuddy.
+- `/documents` connects to the optional Office module in the unified Node/Hono backend for DOCX
+  upload, ONLYOFFICE editing, persistent versions and save callbacks.
+  [Office deployment](docs/office-deployment.md) includes the Compose overlay.
+  `/distribution` remains a placeholder; gateway models are not delivered to GoodBuddy.
 - Responsive navigation, dark and light themes, filters, details,
   forms, confirmations, and keyboard-accessible dialogs.
 - Production build and a non-root container image.
@@ -60,14 +61,14 @@ business pages.
 ## Not included yet
 
 Legacy snapshot and acknowledgement endpoints remain in the backend but are no
-longer used by the console. PostgreSQL,
-initialization and login, organization isolation, organization authorization, device
+longer used by the console. Initialization and login, organization isolation, organization authorization, device
 WebSocket connections, task routing, relay, package storage, federation, and
-auditable mutations remain production implementation work. The planned Office
-editing integration also has no current implementation: ONLYOFFICE Docs,
-object storage, document sessions, save callbacks, checkpoints, and Desktop
-document tabs remain design work. Model hosting and inference, document saving,
-and device delivery are not implemented. B1 gateway code is implemented with
+auditable mutations remain production implementation work. Office now has a unified
+Node/Hono implementation for private-network DOCX editing and persistent save callbacks;
+broader deployment acceptance, object storage, organization access control,
+and cross-platform Desktop acceptance remain pending. DOCX Desktop tabs and local
+writeback are implemented; see the linked Office progress records. Model hosting, inference and device delivery
+are not implemented. B1 gateway code is implemented with
 Bearer key authentication and model scopes, but acceptance is partial; GoodBuddy
 Desktop, browser UI and a full tool-result roundtrip remain unverified for B1.
 Organization authentication and quotas remain unimplemented. See the
@@ -209,14 +210,15 @@ npm run build
 npm start
 ```
 
-Open `http://127.0.0.1:8787`.
+The API listens on `http://127.0.0.1:8787`. Serve `dist/web/` through the separate
+Web container below (port 8088), with `/api/` proxied to the backend.
 
 Use the same master-key and gateway Base URL environment settings as development
 when starting the build. A successful build does not imply production readiness.
 
 Build output is `dist/web/` for the console and `dist/server/` for the backend.
-`npm start` runs `dist/server/server/src/index.js` from the repository root and
-serves `dist/web/`. The backend preserves the source directory structure under
+`npm start` runs only `dist/server/server/src/index.js` from the repository root.
+The backend preserves the source directory structure under
 its output directory so compiled imports can resolve root `shared/` modules.
 
 Set `SHARESERVER_PORT` to use another listen port. Local runs bind to
@@ -224,6 +226,10 @@ Set `SHARESERVER_PORT` to use another listen port. Local runs bind to
 management boundary. Do not expose the prototype as a production service.
 
 ## Container
+
+For ONLYOFFICE with separate Web and unified ShareServer backend containers, follow
+[Office deployment](docs/office-deployment.md). It uses the existing Compose file
+plus `docker/compose.office.yaml`; the standalone commands below do not enable Office.
 
 Container configuration lives in `docker/`. The existing commands below build and
 start the image, but B1 does not support container/proxy administration: published
@@ -240,9 +246,14 @@ docker compose -f docker/compose.yaml ps
 docker compose -f docker/compose.yaml logs -f shareserver
 ```
 
-Open `http://127.0.0.1:8787`. The container runs as the non-root `node` user
+Open `http://127.0.0.1:8088`. The API container runs as the non-root `node` user
 and stores sharing and gateway metadata in `/app/data`, bind-mounted from the project's
-`./data` directory. No named volume or additional database container is required.
+`./data` directory. Compose also starts a PostgreSQL 16 service with the persistent
+`postgres-data` volume and exposes its connection string to ShareServer as
+`DATABASE_URL`. When `DATABASE_URL` is set, both Stores use PostgreSQL JSONB state and
+create the `shareserver_state` table at startup. Existing JSON files are imported once
+when their database state is absent; the data directory remains mounted for encrypted
+credential keys and that one-time import.
 Existing local `data/sharing.json` is used directly and must be readable by UID 1000.
 Gateway configuration and its bounded audit metadata use `data/gateway.json` in
 the same mount; upstream credentials are encrypted there and access keys are

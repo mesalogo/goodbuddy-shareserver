@@ -9,6 +9,13 @@ distinction in code, UI, documentation, and validation reports.
 
 ## Implementation
 
+- Frontend/backend separation means `web/` is the ShareServer frontend and
+  `server/` is its unified Node.js/Hono backend. Office is a backend module,
+  not a separate Python service. ONLYOFFICE Docs is an external editing engine.
+- Treat LAN deployments with only a host IP and port, without DNS or a domain,
+  as a normal supported path. Validate browser/Desktop access, plugin CORS,
+  downloads and callbacks using IP URLs. Distinguish browser-visible URLs from
+  container service URLs; never require domains or assume localhost is the server.
 - Follow the existing TypeScript, Hono, React, Vite, and local UI components.
 - Keep the service independently buildable. Do not import Electron or files
   from the GoodBuddy Desktop checkout.

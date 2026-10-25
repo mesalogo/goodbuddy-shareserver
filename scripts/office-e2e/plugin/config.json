@@ -1,0 +1,16 @@
+{
+  "name": "GB integration probe",
+  "guid": "asc.{C32D455A-5134-4E5C-A161-D919D9380010}",
+  "baseUrl": "",
+  "variations": [{
+    "description": "GB integration probe",
+    "url": "index.html",
+    "icons": [],
+    "isViewer": false,
+    "EditorsSupport": ["word"],
+    "isVisual": false,
+    "initDataType": "none",
+    "initData": "",
+    "buttons": []
+  }]
+}

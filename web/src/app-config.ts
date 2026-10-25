@@ -55,7 +55,7 @@ export const pages: PageConfig[] = [
   {
     path: '/documents',
     title: '文档与协作',
-    description: '文档存储在 ShareServer，在 GoodBuddy 中使用；管理归属、回收站和 OnlyOffice 服务。',
+    description: '上传 DOCX，通过 ONLYOFFICE 编辑并持久保存到 ShareServer。',
     icon: FileText,
     role: 'admin',
     group: 'GoodBuddy 服务',

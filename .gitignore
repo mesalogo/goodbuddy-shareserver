@@ -5,3 +5,6 @@ node_modules/
 data/
 .env*
 /docs/references/
+__pycache__/
+.venv/
+.pytest_cache/

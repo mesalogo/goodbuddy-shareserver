@@ -1,10 +1,40 @@
 name: goodbuddy-shareserver
 
 services:
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    ports:
+      - "${SHARESERVER_BIND_ADDRESS:-0.0.0.0}:${SHARESERVER_WEB_PORT:-8088}:80"
+    depends_on:
+      shareserver:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-shareserver}
+      POSTGRES_USER: ${POSTGRES_USER:-shareserver}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shareserver-dev}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   shareserver:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-shareserver}:${POSTGRES_PASSWORD:-shareserver-dev}@postgres:5432/${POSTGRES_DB:-shareserver}
     ports:
       - "8787:8787"
     volumes:
@@ -14,3 +44,6 @@ services:
         bind:
           create_host_path: false
     restart: unless-stopped
+
+volumes:
+  postgres-data:

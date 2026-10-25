@@ -11,7 +11,7 @@ export default defineConfig({
     configureServer(server) {
       // Check the original socket before the proxy replaces it with a local connection.
       server.middlewares.use((req, res, next) => {
-        if (!req.url?.startsWith('/api')) return next()
+        if (!req.url?.startsWith('/api') || req.url.startsWith('/api/v1/office/')) return next()
         const address = req.socket.remoteAddress?.toLowerCase()
         const ipv4 = address?.startsWith('::ffff:') ? address.slice(7) : address
         if (address === '::1' || (ipv4 !== undefined && isIP(ipv4) === 4 && ipv4.startsWith('127.'))) return next()

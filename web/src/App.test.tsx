@@ -40,7 +40,7 @@ describe('ShareServer console', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v1/gateway/config', expect.anything())
   })
 
-  it.each(pages.filter((page) => !['/', '/capabilities', '/model-gateway', '/distribution', '/devices'].includes(page.path)))(
+  it.each(pages.filter((page) => !['/', '/capabilities', '/model-gateway', '/distribution', '/devices', '/documents'].includes(page.path)))(
     'shows a boundary state without pretend actions at $path', (page) => {
       window.history.replaceState({}, '', page.path)
       render(<App />)

@@ -4,7 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-RUN npm run build
+RUN npm run build:server
 
 FROM node:22-alpine AS runtime
 
@@ -16,7 +16,6 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && mkdir -p /app/data && chown node:node /app/data
-COPY --from=build /app/dist/web ./dist/web
 COPY --from=build /app/dist/server ./dist/server
 
 USER node

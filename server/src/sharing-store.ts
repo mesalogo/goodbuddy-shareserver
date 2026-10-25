@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { Device, DeviceInput, Publication, PublicationInput } from '../../shared/sharing.js'
+import { databaseEnabled, readState, writeState } from './database.js'
 
 export class SharingError extends Error {
   constructor(public status: 400 | 404 | 409 | 413 | 415, public code: string, message: string) {
@@ -121,6 +122,25 @@ export class SharingStore {
 
   private async load(): Promise<State> {
     if (!this.state) {
+      if (databaseEnabled()) {
+        const stored = await readState<unknown>('sharing')
+        if (stored !== null) {
+          try { this.state = parseState(stored) }
+          catch (error) { throw new Error('Unable to load sharing metadata.', { cause: error }) }
+        } else {
+          try {
+            this.state = parseState(JSON.parse(await readFile(this.filename, 'utf8')))
+            await writeState('sharing', this.state)
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+              throw new Error('Unable to load sharing metadata.', { cause: error })
+            }
+            this.state = { version: 1, devices: [], publications: [] }
+            await writeState('sharing', this.state)
+          }
+        }
+        return this.state
+      }
       try {
         this.state = parseState(JSON.parse(await readFile(this.filename, 'utf8')))
       } catch (error) {
@@ -135,6 +155,11 @@ export class SharingStore {
   }
 
   private async save(state: State): Promise<void> {
+    if (databaseEnabled()) {
+      await writeState('sharing', state)
+      this.state = state
+      return
+    }
     await mkdir(this.directory, { recursive: true })
     const temporary = `${this.filename}.${randomUUID()}.tmp`
     try {
