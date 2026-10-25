@@ -23,6 +23,7 @@ parser.add_argument('--host', default='192.168.0.23')
 parser.add_argument('--env-file', default='.env.office')
 parser.add_argument('--browser', help='Optional Chromium executable')
 parser.add_argument('--desktop', action='store_true', help='Also run the adjacent GB legacy-DOC Electron save-as probe')
+parser.add_argument('--desktop-only', action='store_true', help='Run only desktop normal and legacy save flows against the isolated stack')
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[2]
 root = Path(tempfile.mkdtemp(prefix='office-formats-', dir=repo / 'data'))
@@ -51,7 +52,7 @@ try:
                         '--convert-to', conversion, '--outdir', str(root), str(root / f'sample.{modern}')], check=True, timeout=60)
         assert (root / f'sample.{legacy}').is_file()
     env = dict(os.environ, OFFICE_ENABLED='true', OFFICE_DATA_DIR=str(root / 'office'), SHARESERVER_DATA_DIR=str(root / 'metadata'),
-               SHARESERVER_HOST='0.0.0.0', SHARESERVER_PORT='18087', SHARESERVER_API_PORT='18087', DATABASE_URL='',
+               SHARESERVER_HOST='0.0.0.0', SHARESERVER_PORT='18087', SHARESERVER_API_PORT='18087', SHARESERVER_PUBLIC_URL=web, DATABASE_URL='',
                OFFICE_INTERNAL_URL=api, ONLYOFFICE_PUBLIC_URL=f'http://{args.host}:8080', ONLYOFFICE_INTERNAL_URL=f'http://{args.host}:8080')
     log = (root / 'services.log').open('w')
     processes.append(subprocess.Popen(['node', '--env-file=' + str(repo / args.env_file), 'dist/server/server/src/index.js'], cwd=repo, env=env, stdout=log, stderr=log))
@@ -78,7 +79,7 @@ try:
         print(f'PASS: {extension} upload/conversion -> {record["name"]}; marker and digest verified', flush=True)
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=args.browser, headless=True, args=['--no-sandbox'])
-        for extension, record in records:
+        for extension, record in ([] if args.desktop_only else records):
             page = browser.new_page(viewport={'width': 1440, 'height': 1000})
             page.goto(web + '/office/editor?document=' + record['id'])
             page.wait_for_function('document.documentElement.dataset.officeReady === "true"', timeout=60000)
@@ -100,14 +101,12 @@ try:
             else:
                 page.screenshot(path=str(root / f'{extension}-editor.png'))
                 # Title slide: enter the existing title shape and replace only its text.
-                page.mouse.dblclick(800, 525)
+                page.mouse.dblclick(800, 475)
                 page.keyboard.press('Control+a'); page.keyboard.type(marker); page.keyboard.press('Escape')
             page.keyboard.press('Control+s')
             page.wait_for_function('document.documentElement.dataset.officeDirty === "false"', timeout=30000)
-            # Docs' autosave has a short scheduling delay. Retry the explicit save until persisted.
+            # Native editor Save must persist without the removed host-page save button.
             for attempt in range(30):
-                current = json.loads(request('/documents/' + record['id']))
-                if current['state'] == 'editing': request('/documents/' + record['id'] + '/save', b'')
                 page.wait_for_timeout(500)
                 output = request('/documents/' + record['id'] + '/download')
                 if xml_contains(output, marker): break
@@ -117,10 +116,12 @@ try:
             print(f'PASS: {extension} keyboard edit -> real callback -> persisted output', flush=True)
             page.close()
         browser.close()
-    if args.desktop:
+    if args.desktop or args.desktop_only:
         import sys
+        if args.desktop_only:
+            subprocess.run([sys.executable, str(repo.parent / 'goodbuddy/scripts/verify-office-desktop.py'), '--web', web, '--file-entry'], cwd=repo.parent / 'goodbuddy', check=True, timeout=150)
         subprocess.run([sys.executable, str(repo.parent / 'goodbuddy/scripts/verify-office-desktop.py'), '--web', web, '--legacy'], cwd=repo.parent / 'goodbuddy', check=True, timeout=120)
-    print('PASS: all six formats; isolated probe data will be removed', flush=True)
+    print('PASS: selected format/desktop flows; isolated probe data will be removed', flush=True)
 finally:
     for process in processes:
         if process.poll() is None:

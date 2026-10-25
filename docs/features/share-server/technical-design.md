@@ -425,6 +425,9 @@ GB 在连接配置时展示能力，实际打开前重新检查启用状态及�
 工作区、会话文件与附件共用此契约；GB 负责本地／远程来源解析，服务端只接收文件内容。
 
 `directFormats` 声明 DOCX、XLSX、PPTX；`conversions` 映射 DOC→DOCX、XLS→XLSX、PPT→PPTX。
+可选 `webUrl` 声明浏览器可达的 ShareServer Web origin（`SHARESERVER_PUBLIC_URL`），GB 可复用设备连接
+并从 API 地址发现编辑入口。嵌入页无重复顶栏；编辑配置开启原生保存，支持经 JWT 验证的
+forcesavetype=1 回调。原生回调不得覆盖正在进行的带标记 Desktop 保存，最终关闭的轮次仍忽略迟到快照。
 按输出格式校验 OOXML 根部件、content type、命名空间与大小，选择 word/cell/slide 编辑器并使用
 对应 MIME 下载；保存回调必须仍为同一种输出格式。现有 DOCX 元数据按文件名确定格式，无需迁移。
 转换调用 Docs `/converter`，使用同一 JWT 配置。转换期间的原始字节通过临时、需 JWT 的内部源接口提供，

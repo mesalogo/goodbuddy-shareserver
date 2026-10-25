@@ -70,6 +70,16 @@ describe('unified Office API', () => {
     service = createOfficeService(cfg, upstream); await service.initialize()
   })
   afterEach(async () => { await rm(cfg.root, { recursive: true, force: true }) })
+  it('persists the native editor Save button without replacing an outstanding desktop save', async () => {
+    const id = await upload(), config = await launch(id)
+    expect(config.editorConfig.customization.forcesave).toBe(true)
+    expect((await callback(config, 6, { forcesavetype: 1, url: cfg.internal + '/cache/native' })).status).toBe(200)
+    expect((await (await req(`/api/v1/office/documents/${id}`)).json()).revision).toBe(2)
+    await req(`/api/v1/office/documents/${id}/save`, { method: 'POST' })
+    content = docx('native while desktop saving')
+    expect((await callback(config, 6, { forcesavetype: 1, url: cfg.internal + '/cache/native' })).status).toBe(409)
+    expect((await (await req(`/api/v1/office/documents/${id}`)).json()).revision).toBe(2)
+  })
   it.each(['xlsx', 'pptx'] as const)('edits and persists %s without accepting the wrong save format', async format => {
     const uploaded = await req(`/api/v1/office/documents?name=test.${format}`, { method: 'POST', body: packageFor(format) })
     expect(uploaded.status).toBe(201)

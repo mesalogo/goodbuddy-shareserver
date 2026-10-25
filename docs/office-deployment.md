@@ -12,6 +12,8 @@ GB 在“设置 → 平台功能 → ShareServer 连接”配置本服务的 Web
 不是所有 ShareServer 都启用了 Office：`GET /api/v1/office/config` 返回
 `enabled`、`formats`、`maxBytes` 和 `versionedDownload`。`directFormats` 为 DOCX、XLSX、PPTX；
 `conversions` 声明 DOC → DOCX、XLS → XLSX、PPT → PPTX，`formats` 包含六种可上传格式。
+文档 Tab 不再重复填写地址；未配置独立 Office 地址时，GB 复用设备共享连接。
+`webUrl` 来自 `SHARESERVER_PUBLIC_URL`，供连接到 API 端口的 GB 自动定位 Web 编辑入口。
 仅连接成功不代表编辑引擎健康，仍须验证真实文档打开与保存。
 
 工作区文件、会话文件链接及附件的显式在线编辑动作复用同一连接。已有配置时检查能力后上传，
@@ -20,6 +22,8 @@ GB 在“设置 → 平台功能 → ShareServer 连接”配置本服务的 Web
 保存先生成服务端版本，再由 GB 下载确定 revision 并检查来源摘要后回写；不可覆盖的附件另存为。
 旧格式通过 ONLYOFFICE `/converter` 转换，不需要业务 Python 或 LibreOffice 服务。
 转换结果返回 `originalName` 和 `requiresSaveAs=true`，GB 另存为现代格式，原件不变。
+嵌入页铺满文档区域，不显示重复的文件名、保存按钮或版本说明。ONLYOFFICE 自身保存进入服务器；
+GB 的 Ctrl/Cmd+S 保存回源文件，Ctrl/Cmd+Shift+S 另存为，关闭时保留保存确认。
 请核对转换后的版式、公式和嵌入对象；不支持宏保留、密码文件或旧格式反向保存。
 入口与客户端验收范围见 [GB Office 进度](../../goodbuddy/docs/features/office-document-editing/progress.md)。
 

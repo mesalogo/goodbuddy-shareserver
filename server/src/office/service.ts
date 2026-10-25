@@ -20,6 +20,7 @@ export function officeSettings(env = process.env) {
     secret: env.ONLYOFFICE_JWT_SECRET ?? '', public: origin(env.ONLYOFFICE_PUBLIC_URL ?? 'http://localhost:8080'),
     internal: origin(env.ONLYOFFICE_INTERNAL_URL ?? 'http://onlyoffice'),
     api: origin(env.OFFICE_INTERNAL_URL ?? 'http://shareserver:8787'),
+    web: env.SHARESERVER_PUBLIC_URL ? origin(env.SHARESERVER_PUBLIC_URL) : undefined,
     limit: Number(env.OFFICE_MAX_BYTES ?? 20 * 1024 * 1024),
     quota: Number(env.OFFICE_QUOTA_BYTES ?? 1024 * 1024 * 1024),
     timeout: Number(env.OFFICE_TIMEOUT_SECONDS ?? 30) * 1000
@@ -146,7 +147,7 @@ export function createOfficeService(cfg = officeSettings(), request: typeof fetc
     console.error('Office operation failed', error)
     return c.json({ detail: 'Office 操作失败，最近成功版本保留' }, 500)
   })
-  routes.get('/api/v1/office/config', c => c.json({ enabled: cfg.enabled, maxBytes: cfg.limit, publicUrl: cfg.public, formats: inputFormats, directFormats: Object.keys(officeFormats), conversions: conversionFormats, versionedDownload: true, productionReady: false }))
+  routes.get('/api/v1/office/config', c => c.json({ enabled: cfg.enabled, maxBytes: cfg.limit, publicUrl: cfg.public, webUrl: cfg.web, formats: inputFormats, directFormats: Object.keys(officeFormats), conversions: conversionFormats, versionedDownload: true, productionReady: false }))
   routes.get('/internal/office/conversion/:key/source', async c => {
     enabled()
     const key = c.req.param('key'), content = conversionSources.get(key)
@@ -222,7 +223,7 @@ export function createOfficeService(cfg = officeSettings(), request: typeof fetc
     const configuration = {
       documentType: officeFormats[outputFormat(record.name)].documentType, type: 'desktop',
       document: { fileType: outputFormat(record.name), key: current.key, title: record.name, url: `${base}/source?access=${current.nonce}` },
-      editorConfig: { mode: 'edit', lang: 'zh-CN', callbackUrl: `${base}/callback`, customization: { forcesave: false },
+      editorConfig: { mode: 'edit', lang: 'zh-CN', callbackUrl: `${base}/callback`, customization: { forcesave: true },
         plugins: { autostart: ['asc.{C32D455A-5134-4E5C-A161-D919D9380020}'], pluginsData: [`${new URL(c.req.url).origin}/api/v1/office/plugin/config.json`] } }
     }
     return { scriptUrl: `${cfg.public}/web-apps/apps/api/documents/api.js`, config: { ...configuration, token: await sign(configuration) } }
@@ -296,9 +297,14 @@ export function createOfficeService(cfg = officeSettings(), request: typeof fetc
       } else if (status === 4) Object.assign(current, { state: 'closed', pending: null })
       else if (status === 2 || status === 6) {
         const marker = body.userdata
+        const editorSave = status === 6 && body.forcesavetype === 1 && !marker
         if (status === 6) {
-          if (current.completed.includes(String(marker))) return c.json({ error: 0 })
-          if (!marker || marker !== current.pending || body.forcesavetype !== 0) return c.json({ error: 1 }, 409)
+          if (editorSave) {
+            if (current.pending || !['editing', 'error'].includes(current.state)) return c.json({ error: 1 }, 409)
+          } else {
+            if (current.completed.includes(String(marker))) return c.json({ error: 0 })
+            if (!marker || marker !== current.pending || body.forcesavetype !== 0) return c.json({ error: 1 }, 409)
+          }
         }
         try {
           const output = new URL(String(body.url))
@@ -307,7 +313,7 @@ export function createOfficeService(cfg = officeSettings(), request: typeof fetc
           if (response.status !== 200) throw new Error('Save download failed')
           await version(record, await bounded(response.body, cfg.limit))
           Object.assign(current, { state: status === 2 ? 'saved' : 'editing', pending: null })
-          if (status === 6) current.completed.push(String(marker))
+          if (status === 6 && !editorSave) current.completed.push(String(marker))
           record.error = null; await store(record)
           return c.json({ error: 0 })
         } catch {

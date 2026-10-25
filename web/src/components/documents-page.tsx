@@ -19,7 +19,22 @@ function DocumentEditor({ id, embedded = false }: { id: string; embedded?: boole
   const [message, setMessage] = useState('正在加载编辑器…')
   const [busy, setBusy] = useState(false)
   const [retry, setRetry] = useState(0)
+  const [desktopNotice, setDesktopNotice] = useState('')
+  const [ready, setReady] = useState(false)
   const host = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!embedded) return
+    let timer: ReturnType<typeof setTimeout>
+    const saved = (event: Event) => {
+      const detail: unknown = (event as CustomEvent).detail
+      if (typeof detail !== 'string') return
+      setDesktopNotice(detail); clearTimeout(timer)
+      timer = setTimeout(() => setDesktopNotice(''), 4000)
+    }
+    window.addEventListener('gb-office-save-result', saved)
+    return () => { clearTimeout(timer); window.removeEventListener('gb-office-save-result', saved) }
+  }, [embedded])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -61,7 +76,7 @@ function DocumentEditor({ id, embedded = false }: { id: string; embedded?: boole
         host.current.replaceChildren(target)
         editor = new window.DocsAPI.DocEditor(target.id, {
           ...launch.config, width: '100%', height: '100%', events: {
-            onDocumentReady: () => { state.officeReady = 'true'; setMessage('编辑器已就绪；服务器保存状态见下方版本记录。') },
+            onDocumentReady: () => { state.officeReady = 'true'; setReady(true); setMessage('编辑器已就绪；服务器保存状态见下方版本记录。') },
             onDocumentStateChange: (event: { data: boolean }) => {
               state.officeDirty = String(event.data)
               setMessage(event.data ? '有编辑修改；请保存到服务器，或关闭编辑器后等待最终保存。' : '修改已交给编辑服务；以服务器版本记录为保存依据。')
@@ -93,16 +108,18 @@ function DocumentEditor({ id, embedded = false }: { id: string; embedded?: boole
     finally { setBusy(false) }
   }
 
-  return <section className={embedded ? 'flex h-screen flex-col p-2' : undefined}>
+  return <section className={embedded ? 'relative flex h-screen w-full flex-col overflow-hidden' : undefined}>
     {!embedded && <PageHeader title={document?.name ?? '在线文档'} description="文档主存储：ShareServer。关闭编辑器后，请在文档库确认最终保存状态。" action={<Link to="/documents">关闭编辑器并返回文档库</Link>} />}
-    <div className="mb-4 flex flex-wrap items-center gap-4">
+    {!embedded && <><div className="mb-4 flex flex-wrap items-center gap-4">
       <Button onClick={() => void save()} disabled={busy || document?.state !== 'editing'}>保存到服务器</Button>
       <span role="status">{document ? `${states[document.state]} · 已持久化版本 ${document.revision}` : '正在读取保存状态…'}</span>
     </div>
     <p className="mb-4 text-sm text-[var(--text-muted)]">{message}</p>
-    {document?.originalName && <p>由 {document.originalName} 转换为 {document.name}；下载的是转换后格式，原文件不会更新。请核对版式、公式和嵌入对象，宏不保留。</p>}
+    {document?.originalName && <p>由 {document.originalName} 转换为 {document.name}；下载的是转换后格式，原文件不会更新。请核对版式、公式和嵌入对象，宏不保留。</p>}</>}
+    {embedded && !ready && !error && <p role="status">正在加载编辑器…</p>}
+    {embedded && desktopNotice && <p role="status" className="absolute bottom-3 right-3 z-10 rounded bg-[var(--panel)] px-3 py-2 text-sm shadow">{desktopNotice}</p>}
     {document?.error && <p role="alert">{document.error}</p>}
-    {error && <div role="alert" className="mb-4">{error} <Button variant="secondary" onClick={() => { setError(''); setRetry(retry + 1) }}>重试连接</Button></div>}
+    {error && <div role="alert" className="mb-4">{error} <Button variant="secondary" onClick={() => { setError(''); setReady(false); setRetry(retry + 1) }}>重试连接</Button></div>}
     {document?.state === 'recovering' && <Button variant="secondary" onClick={() => {
       void officeRequest(`/documents/${id}/reconcile`, { method: 'POST' }).then(() => setMessage('已请求核对轮次，状态更新后请重试连接。')).catch(cause => setError(String(cause)))
     }}>核对编辑轮次</Button>}

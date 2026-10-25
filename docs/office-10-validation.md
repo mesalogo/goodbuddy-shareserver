@@ -1,5 +1,17 @@
 # ONLYOFFICE 10.0 与 GB 接入前验证
 
+## 2026-10-26：无重复顶栏的嵌入编辑及原生保存
+
+- `/office/editor` 铺满视口，去除外层标题、保存到服务器、版本说明与内边距；浏览器文档库仍保留独立管理操作。
+- 编辑器开启原生 forcesave，六格式（DOCX/XLSX/PPTX 与 DOC/XLS/PPT 转换）真实键盘保存均经类型 1 回调落盘，
+  下载内容包含编辑标记；本次探针不再使用额外 `/save` 调用代替原生保存。
+- 142 项服务端／Web 测试、类型检查、lint、生产构建通过。回归覆盖原生保存与进行中的 Desktop 保存隔离。
+- 相邻 GB 的真实 Electron 探针验证复用连接、无重复按钮、零边距、原生快捷键回写、冲突及另存为；
+  `formats_probe.py --desktop-only` 可复现本地来源与旧格式两条流程。使用隔离 IP API/Web 和现有 Docs 10.0。
+  Linux 自动化使用 `sendInputEvent` 触发实际 Electron 键盘处理；DevTools 键盘注入不能替代该验证。
+
+以下为此前阶段记录。
+
 最新多格式范围见文末“六格式与旧格式转换补充验证”；前面章节保留初期 DOCX 验证记录。
 
 后续 Desktop 本地 DOCX 接入验证见
