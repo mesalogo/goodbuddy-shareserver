@@ -1,5 +1,7 @@
 # ONLYOFFICE 10.0 与 GB 接入前验证
 
+最新多格式范围见文末“六格式与旧格式转换补充验证”；前面章节保留初期 DOCX 验证记录。
+
 后续 Desktop 本地 DOCX 接入验证见
 [GB 实施进度](../../goodbuddy/docs/features/office-document-editing/progress.md)：已通过真实 Electron
 修改回写、冲突保护与另存为。服务端新增指定版本下载回归，Python 测试现为 15 项；下文是
@@ -85,3 +87,22 @@ GB 最新提交 `c8ef4ed4` 新增了独立本地预览 Demo（DOCX／XLSX／PPTX
 
 默认 Compose 和环境模板已同步为此次验证的 10.0 digest。测试容器与网络在本轮结束后清理；
 未升级正在运行的业务容器。
+
+## 2026-10-25：六格式与旧格式转换补充验证
+
+当前源码扩展为 DOCX、XLSX、PPTX 直接编辑，DOC、XLS、PPT 经 ONLYOFFICE `/converter` 转换为对应现代格式。
+转换失败不发布文档；返回的文件名、MIME、版本摘要和校验均按输出格式。旧格式客户端另存为，不能覆盖原扩展名文件。
+
+使用 `scripts/office-e2e/formats_probe.py --host 192.168.0.23 --browser <Chromium路径> --desktop` 验证：
+
+- python-docx/openpyxl/python-pptx 生成现代格式样本，LibreOffice 仅生成真实旧格式二进制测试样本。
+- 隔离 Node API :18087、Vite Web :18088 连接现有 Community Docs 10.0 :8080；实际转换由 Docs 执行。
+- 六种输入分别成功打开，键盘修改后，经真实保存回调落盘；下载 OOXML 包均包含对应修改标记，初始转换内容与摘要检查通过。
+- GB 真实 Electron 打开 DOC、修改选区并保存到 DOCX，原 DOC 字节完全不变，关闭通过真实 IPC。
+- 开发代理原先生成 127.0.0.1 后端端口的插件 URL，导致 Electron CSP 阻挡。已显式保留浏览器 Host，IP/端口场景复测通过。
+
+Office 定向测试 22 项通过；后端和 Web 类型检查、lint、构建通过。并行的控制台更新完成后，
+最终工作区全量重跑为 13 个测试文件、130 项测试通过。
+常驻 ShareServer 存在活动编辑轮次，本轮未切换其容器；上述新功能验证均使用隔离 API/Web。
+临时进程与数据已清理。样本证明基本内容编辑保存，不证明复杂公式、图表、宏、嵌入对象及三平台保真度。
+AI 验证仍限定 Word；PDF.js 与其他开放格式尚未纳入本轮。此前章节为初期 DOCX 验证记录。

@@ -33,11 +33,21 @@ Source and feature documentation were extracted from GoodBuddy commit
 
 ## Included
 
+- Instance administrator setup, login/logout and browser sessions for LAN console
+  management. Compose enables authentication; set `SHARESERVER_PUBLIC_URL` to the
+  browser-visible URL and follow [administrator setup](docs/features/share-server/admin-login.md).
+  This is a single administrator implementation, not organization/member authorization.
+
 - Hono HTTP service with health, readiness, prototype snapshot, and prototype
   action endpoints.
 - Same-origin React, Vite, TypeScript, Tailwind CSS, and shadcn/ui-style Web
   console.
-- Overview with service links; planned modules show pending-service notices.
+- Overview with service links, pending management reviews and recent register changes.
+- Persistent management registers for configuration drafts, member entries, policy
+  drafts, manual requests, resource versions, partner gateways, task plans and
+  instance notes. Includes editing, review decisions, archive/restore, filtering,
+  JSON export and bounded mutation history. These records do not execute policies,
+  create accounts, deliver configurations or run remote tasks.
 - Sharing center at `/capabilities`: real device and publication metadata,
   filters, source declarations and separate search/read/download flags; no content
   operations or organization ownership checks are connected.
@@ -47,7 +57,8 @@ Source and feature documentation were extracted from GoodBuddy commit
 - `/documents` connects to the optional Office module in the unified Node/Hono backend for DOCX
   upload, ONLYOFFICE editing, persistent versions and save callbacks.
   [Office deployment](docs/office-deployment.md) includes the Compose overlay.
-  `/distribution` remains a placeholder; gateway models are not delivered to GoodBuddy.
+  `/distribution` saves and exports configuration drafts; gateway models are not
+  automatically delivered to GoodBuddy.
 - Responsive navigation, dark and light themes, filters, details,
   forms, confirmations, and keyboard-accessible dialogs.
 - Production build and a non-root container image.
@@ -61,7 +72,7 @@ business pages.
 ## Not included yet
 
 Legacy snapshot and acknowledgement endpoints remain in the backend but are no
-longer used by the console. Initialization and login, organization isolation, organization authorization, device
+longer used by the console. Member login, organization isolation, organization authorization, device
 WebSocket connections, task routing, relay, package storage, federation, and
 auditable mutations remain production implementation work. Office now has a unified
 Node/Hono implementation for private-network DOCX editing and persistent save callbacks;
@@ -192,12 +203,12 @@ revoked keys return 401; unauthorized models return 403. Model lists include onl
 authorized, enabled models with enabled upstreams and usable credentials. Audits
 link the access key ID, which identifies a calling configuration, not a user.
 
-Management and the legacy sharing API require a direct loopback socket. For these
-requests, the API rejects `Forwarded`, `X-Forwarded-*` and `X-Real-IP` headers and checks Origin;
-Origin alone is not authorization. Web tests use local-only `/api/v1/gateway/test`,
-not a Bearer bypass on client endpoints. Reverse-proxy and container administration
-are unsupported until B2 login exists; a proxy's loopback connection must not be
-treated as an administrator. Nonlocal clients must reach the API inference
+When authentication is disabled for local development, management and the legacy sharing API require a direct loopback socket. For these
+requests, the API rejects `Forwarded`, `X-Forwarded-*` and `X-Real-IP` headers and checks Origin.
+With authentication enabled, management instead requires an administrator session
+and checks write origins against `SHARESERVER_PUBLIC_URL`, supporting the LAN proxy.
+Web tests use the protected `/api/v1/gateway/test`, not a Bearer bypass on client endpoints.
+Nonlocal clients must reach the API inference
 endpoints directly with a key, not through Vite. Use HTTPS for external deployment;
 HTTP carries keys without transport encryption. Organization isolation and quotas
 remain pending. Dated verification is in [progress](docs/features/share-server/progress.md).
@@ -232,11 +243,12 @@ For ONLYOFFICE with separate Web and unified ShareServer backend containers, fol
 plus `docker/compose.office.yaml`; the standalone commands below do not enable Office.
 
 Container configuration lives in `docker/`. The existing commands below build and
-start the image, but B1 does not support container/proxy administration: published
-ports usually reach the API from a non-loopback socket and management returns 403.
-The supplied Compose file does not configure the master-key file. Managed
-credentials require a separate secret mount outside `/app/data` and its environment
-setting; container management must wait for B2. Run from the repository root:
+start the image. Compose enables administrator authentication and requires
+`SHARESERVER_PUBLIC_URL` (for example `http://192.168.0.23:8088`). Complete the
+[first administrator setup](docs/features/share-server/admin-login.md) after startup.
+The supplied Compose file does not configure the model gateway master-key file.
+Managed upstream credentials still require a separate secret mount outside `/app/data`
+and its environment setting. Run from the repository root with the public URL exported:
 
 ```text
 mkdir -p data
@@ -274,7 +286,8 @@ docker run --rm -p 127.0.0.1:8787:8787 --mount type=bind,source="$(pwd)/data",ta
 
 Compose publishes port 8787 on all host interfaces; the standalone example
 publishes only on the host loopback interface. Containerization
-does not add organization login or relax B1's socket restrictions.
+does not add organization login. Standalone images keep the local development boundary
+unless `SHARESERVER_AUTH_ENABLED=true` and `SHARESERVER_PUBLIC_URL` are supplied.
 The image health check verifies HTTP availability, not storage writability or
 production readiness.
 

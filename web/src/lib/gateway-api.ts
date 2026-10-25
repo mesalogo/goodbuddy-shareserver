@@ -1,4 +1,7 @@
+import { adminFetch } from './admin-fetch'
+
 const errors: Record<string, string> = {
+  LOGIN_REQUIRED: '登录已过期，请重新登录。',
   CREDENTIAL_UNAVAILABLE: '服务器无法加密或读取凭据，请管理员检查网关主密钥配置。',
   CREDENTIAL_NOT_CONFIGURED: '请编辑上游并设置 API Key，或选择无需认证。',
   INVALID_BASE_URL: '请输入 HTTP 或 HTTPS 地址，不含用户名、密码、查询参数或片段。',
@@ -25,7 +28,7 @@ const errors: Record<string, string> = {
 export async function gatewayRequest<T>(path: string, signal: AbortSignal, method = 'GET', body?: unknown): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`/api/v1/gateway${path}`, { signal, method, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) })
+    response = await adminFetch(`/api/v1/gateway${path}`, { signal, method, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) })
   } catch { throw new Error('网络请求失败，请检查连接后重试。') }
   if (!response.ok) {
     const envelope = await response.json().catch(() => null)

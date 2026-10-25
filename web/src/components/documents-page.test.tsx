@@ -9,7 +9,7 @@ it('shows disabled Office without offering an upload', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ enabled: false, maxBytes: 1024 }) }))
   render(<MemoryRouter><DocumentsPage /></MemoryRouter>)
   expect(await screen.findByText(/Office 尚未启用/)).toBeInTheDocument()
-  expect(screen.queryByLabelText('上传 DOCX')).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('上传 Office 文件')).not.toBeInTheDocument()
 })
 
 it('uploads DOCX and shows persisted documents and download links', async () => {
@@ -19,11 +19,11 @@ it('uploads DOCX and shows persisted documents and download links', async () => 
       uploaded = true
       return { ok: true, json: async () => ({ id: 'a' }) }
     }
-    return { ok: true, json: async () => url.endsWith('/config') ? { enabled: true, maxBytes: 20971520 } : { documents: uploaded ? [{ id: 'a', name: 'test.docx', revision: 1, state: 'saved', updatedAt: 1000 }] : [] } }
+    return { ok: true, json: async () => url.endsWith('/config') ? { enabled: true, formats: ['docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt'], maxBytes: 20971520 } : { documents: uploaded ? [{ id: 'a', name: 'test.docx', revision: 1, state: 'saved', updatedAt: 1000 }] : [] } }
   })
   vi.stubGlobal('fetch', fetcher)
   render(<MemoryRouter><DocumentsPage /></MemoryRouter>)
-  const input = await screen.findByLabelText('上传 DOCX')
+  const input = await screen.findByLabelText('上传 Office 文件')
   const file = new File(['content'], 'test.docx')
   fireEvent.change(input, { target: { files: [file] } })
   expect(await screen.findByText('test.docx')).toBeInTheDocument()

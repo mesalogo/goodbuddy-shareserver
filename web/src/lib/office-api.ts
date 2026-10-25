@@ -2,8 +2,9 @@ export type OfficeDocument = {
   id: string; name: string; revision: number; size: number; updatedAt: number
   state: 'saved' | 'closed' | 'editing' | 'saving' | 'recovering' | 'error'
   error?: string | null
+  originalName?: string; requiresSaveAs?: boolean
 }
-export type OfficeConfig = { enabled: boolean; maxBytes: number; publicUrl: string }
+export type OfficeConfig = { enabled: boolean; maxBytes: number; publicUrl: string; formats: string[]; conversions?: Record<string, string> }
 export type EditorLaunch = { scriptUrl: string; config: Record<string, unknown> }
 
 export async function officeRequest<T>(path: string, options: RequestInit = {}): Promise<T> {

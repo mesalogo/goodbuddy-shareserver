@@ -6,8 +6,10 @@ import type { Device, Publication } from '../../../shared/sharing'
 import type { GatewaySnapshot } from '../../../shared/gateway'
 import { sharingRequest } from '../lib/sharing-api'
 import { gatewayRequest } from '../lib/gateway-api'
+import { adminFetch } from '../lib/admin-fetch'
 import { PageHeader } from './page-header'
 import { PageTabs } from './page-tabs'
+import { consoleModules, type ConsoleSnapshot } from '../../../shared/console'
 
 const panel = 'rounded-2xl border border-white/10 bg-[var(--panel)] p-4 sm:p-5'
 const muted = 'text-sm leading-6 text-[var(--text-muted)]'
@@ -23,6 +25,21 @@ export function OverviewPage() {
   const [topology, setTopology] = useState<Topology | null>(null)
   const [topologyError, setTopologyError] = useState('')
   const [activeTab, setActiveTab] = useState('status')
+  const [management, setManagement] = useState<ConsoleSnapshot | null>(null)
+  const [managementError, setManagementError] = useState('')
+  const [refresh, setRefresh] = useState(0)
+
+  useEffect(() => {
+    if (activeTab === 'status') return
+    const controller = new AbortController()
+    adminFetch('/api/v1/console', { signal: controller.signal }).then(async response => {
+      if (!response.ok) throw new Error('无法读取管理记录')
+      return response.json() as Promise<ConsoleSnapshot>
+    }).then(data => { if (!controller.signal.aborted) { setManagement(data); setManagementError('') } }).catch((error: unknown) => {
+      if (!controller.signal.aborted) setManagementError(error instanceof Error ? error.message : '加载失败')
+    })
+    return () => controller.abort()
+  }, [activeTab, refresh])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -46,7 +63,11 @@ export function OverviewPage() {
         description="管理当前服务的模型网关与本地共享目录。"
       />
       <PageTabs title="运行概览" active={activeTab} onChange={setActiveTab} tabs={[{ key: 'status', label: '服务状态' }, { key: 'pending', label: '待处理事项' }, { key: 'activity', label: '最近活动' }]} />
-      {activeTab !== 'status' && <section className={`${panel} mb-6`}><h2 className="font-semibold">{activeTab === 'pending' ? '待处理事项' : '最近活动'}</h2><p className={`mt-2 ${muted}`}>该 Tab 的组织事件接口尚未接入，当前不生成示例审批、任务或活动记录。</p></section>}
+      {activeTab !== 'status' && <section className={`${panel} mb-6`}><div className="flex justify-between gap-3"><h2 className="font-semibold">{activeTab === 'pending' ? '待处理事项' : '最近活动'}</h2><button className="text-sm underline" onClick={() => setRefresh(v => v + 1)}>刷新</button></div><p className={`mt-2 ${muted}`}>当前实例的管理登记与人工审核记录。</p>
+        {managementError && <p role="alert">{managementError}</p>}
+        {!management && !managementError && <p role="status">正在读取记录…</p>}
+        {management && (activeTab === 'pending' ? <div className="mt-4 space-y-3">{management.records.filter(r => r.status === 'pending').length === 0 && <p className={muted}>没有待审核的登记。</p>}{management.records.filter(r => r.status === 'pending').map(r => <Link className="block text-sm underline" key={r.id} to={`/${r.module}`}>{consoleModules[r.module].title} · {r.name}</Link>)}</div> : <div className="mt-4 space-y-3">{management.audits.length === 0 && <p className={muted}>尚无管理操作记录。</p>}{management.audits.slice(0, 10).map(a => <p key={a.id} className={muted}>{new Date(a.at).toLocaleString()} · {consoleModules[a.module].title} · <Link className="underline" to="/audit">查看变更</Link></p>)}</div>)}
+      </section>}
       {activeTab === 'status' && <>
       <section aria-label="服务拓扑" className={`${panel} mb-6`}>
         <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold text-[var(--text-strong)]">服务拓扑</h2><p className={`mt-1 ${muted}`}>根据当前登记设备、共享目录和模型网关配置展示实际连接关系。</p></div><Link className="text-sm underline underline-offset-4" to="/devices">查看接入设备</Link></div>

@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 
 export type SocketBindings = { incoming?: IncomingMessage }
 
-export async function localAdmin<E extends { Bindings: SocketBindings }>(c: Context<E>, next: Next) {
+export async function localAdmin<E extends { Bindings: SocketBindings }>(c: Context<E>, next: Next): Promise<Response | void> {
   const address = c.env?.incoming?.socket?.remoteAddress?.toLowerCase()
   const ipv4 = address?.startsWith('::ffff:') ? address.slice(7) : address
   const loopback = address === '::1' || (ipv4 !== undefined && isIP(ipv4) === 4 && ipv4.startsWith('127.'))

@@ -44,7 +44,7 @@ function usage(value: Record<string, unknown>, audit: GatewayAudit) {
   }
 }
 
-export function gatewayRoutes(store: GatewayStore, timeoutMs = 120_000) {
+export function gatewayRoutes(store: GatewayStore, timeoutMs = 120_000, admin: typeof localAdmin = localAdmin) {
   const app = new Hono<{ Bindings: SocketBindings; Variables: { requestId: string } }>()
   app.onError((error, c) => {
     const safe = error instanceof GatewayError ? error : new GatewayError(500, 'GATEWAY_FAILURE')
@@ -53,7 +53,7 @@ export function gatewayRoutes(store: GatewayStore, timeoutMs = 120_000) {
   app.use('*', async (c, next) => {
     const inference = (c.req.method === 'POST' && c.req.path === '/api/v1/gateway/v1/chat/completions') || (c.req.method === 'GET' && c.req.path === '/api/v1/gateway/v1/models')
     if (inference) await next()
-    else return localAdmin(c, next)
+    else return admin(c, next)
   })
   const body = async (request: Request) => {
     if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) throw new GatewayError(415, 'JSON_REQUIRED')

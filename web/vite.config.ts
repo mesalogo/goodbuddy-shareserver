@@ -29,7 +29,16 @@ export default defineConfig({
     port: 5174,
     strictPort: true,
     proxy: {
-      '/api': `http://127.0.0.1:${process.env.SHARESERVER_API_PORT ?? process.env.SHARESERVER_PORT ?? '8787'}`
+      '/api': {
+        target: `http://127.0.0.1:${process.env.SHARESERVER_API_PORT ?? process.env.SHARESERVER_PORT ?? '8787'}`,
+        changeOrigin: false,
+        configure(proxy) {
+          // Editor plugin URLs must use the browser-facing IP/port, including in dev.
+          proxy.on('proxyReq', (outgoing, incoming) => {
+            if (incoming.headers.host) outgoing.setHeader('host', incoming.headers.host)
+          })
+        }
+      }
     }
   }
 })

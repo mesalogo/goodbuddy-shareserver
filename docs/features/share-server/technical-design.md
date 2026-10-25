@@ -1,5 +1,8 @@
 # ShareServer 技术设计
 
+当前新增的实例管理员初始化、会话及 LAN 管理契约见[管理员登录第一版](./admin-login.md)。
+下文 B1 的 direct-loopback 边界仅适用于未启用认证的开发模式；B2 组织成员与设备认证仍未完成。
+
 ## 文档信息
 
 | 项目 | 内容 |
@@ -391,7 +394,7 @@ Release catalog 使用独立签名域。服务器不能重打包已签名 payloa
 
 <a id="101-私有部署第一阶段待实现"></a>
 
-### 10.1 私有部署第一阶段（已实现 DOCX 链路）
+### 10.1 私有部署第一阶段（现代 Office 与旧格式转换）
 
 **2026-10-25 架构修正：** Office 已统一到 `server/src/office/` Node.js/Hono 后端，
 React 位于 `web/`，Nginx 将同源 API 统一代理至 ShareServer；不再维护 Python 后端。保留旧锚点供已有链接使用，
@@ -404,7 +407,7 @@ React 位于 `web/`，Nginx 将同源 API 统一代理至 ShareServer；不再�
 | --- | --- |
 | `GET /api/v1/office/config` | 启用状态、上限、Docs URL、formats 和 versionedDownload，不返回秘密 |
 | `GET /api/v1/office/documents` | 文档列表 |
-| `POST /api/v1/office/documents?name=文件名.docx` | 原始 DOCX 请求体上传（非 multipart） |
+| `POST /api/v1/office/documents?name=文件名` | 六种 Office 格式原始请求体上传（非 multipart），旧格式先转换 |
 | `GET /api/v1/office/documents/{id}` | 已持久化 revision、size、digest 与轮次状态 |
 | `GET /api/v1/office/documents/{id}/download?revision=N` | 下载指定已提交版本；不传 revision 时取最新，返回 ETag 摘要与 X-Office-Revision |
 | `POST /api/v1/office/documents/{id}/editor` | 创建／复用轮次，返回签名配置与 scriptUrl |
@@ -412,6 +415,18 @@ React 位于 `web/`，Nginx 将同源 API 统一代理至 ShareServer；不再�
 | `POST /api/v1/office/documents/{id}/reconcile` | 向 Docs 发 info 命令，请求回调核对重启轮次 |
 | `GET /internal/office/{id}/{key}/source?access=…` | 固定轮次源文件；检查出站 JWT URL 与随机凭据 |
 | `POST /internal/office/{id}/{key}/callback` | JWT 保护的回调，内容须与签名 payload 相同 |
+
+`/config` 是客户端 Office 能力探测入口，不是编辑引擎健康检查。模块未启用时仍返回
+`enabled=false`；客户端不能仅凭 ShareServer 地址或 `formats` 字段就创建编辑会话。
+GB 在连接配置时展示能力，实际打开前重新检查启用状态及版本下载支持，上传前校验格式和上限。
+工作区、会话文件与附件共用此契约；GB 负责本地／远程来源解析，服务端只接收文件内容。
+
+`directFormats` 声明 DOCX、XLSX、PPTX；`conversions` 映射 DOC→DOCX、XLS→XLSX、PPT→PPTX。
+按输出格式校验 OOXML 根部件、content type、命名空间与大小，选择 word/cell/slide 编辑器并使用
+对应 MIME 下载；保存回调必须仍为同一种输出格式。现有 DOCX 元数据按文件名确定格式，无需迁移。
+转换调用 Docs `/converter`，使用同一 JWT 配置。转换期间的原始字节通过临时、需 JWT 的内部源接口提供，
+请求结束即释放，不创建持久原件。转换失败不发布文档；成功后持久化现代格式及 originalName，摘要与版本均指向
+转换后的字节。`requiresSaveAs=true` 要求客户端保留旧格式源文件，另存为现代格式，不伪装为旧格式往返保存。
 
 默认上传／保存上限 20 MiB，存储额度 1 GiB，超时 30 秒。状态为 `editing/saving/saved/closed/error/recovering`。
 指定不存在的 revision 返回 404，非正整数返回 422。版本引用随文档元数据原子发布；旧文档可以

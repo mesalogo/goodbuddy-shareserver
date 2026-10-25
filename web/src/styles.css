@@ -9,6 +9,7 @@
   --panel: rgba(12, 25, 43, 0.78);
   --dialog: #0a1525;
   --control: #0d1b2e;
+  --border-default: #34465d;
   --text-strong: #f1f6fd;
   --text-primary: #cdd9e8;
   --text-muted: #718198;
@@ -22,6 +23,7 @@
   --panel: rgba(255, 255, 255, 0.86);
   --dialog: #ffffff;
   --control: #f7fafc;
+  --border-default: #a7b7ca;
   --text-strong: #0e1a2b;
   --text-primary: #2b3b50;
   --text-muted: #52657d;

@@ -5,6 +5,7 @@ RUN npm ci
 COPY web ./web
 COPY shared ./shared
 COPY tsconfig.json ./
+COPY server/tsconfig.json ./server/tsconfig.json
 RUN npx vite build --config web/vite.config.ts
 FROM nginx:1.28-alpine
 COPY --from=build /app/dist/web /usr/share/nginx/html

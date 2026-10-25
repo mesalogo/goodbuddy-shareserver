@@ -100,6 +100,7 @@ function DocumentEditor({ id, embedded = false }: { id: string; embedded?: boole
       <span role="status">{document ? `${states[document.state]} · 已持久化版本 ${document.revision}` : '正在读取保存状态…'}</span>
     </div>
     <p className="mb-4 text-sm text-[var(--text-muted)]">{message}</p>
+    {document?.originalName && <p>由 {document.originalName} 转换为 {document.name}；下载的是转换后格式，原文件不会更新。请核对版式、公式和嵌入对象，宏不保留。</p>}
     {document?.error && <p role="alert">{document.error}</p>}
     {error && <div role="alert" className="mb-4">{error} <Button variant="secondary" onClick={() => { setError(''); setRetry(retry + 1) }}>重试连接</Button></div>}
     {document?.state === 'recovering' && <Button variant="secondary" onClick={() => {
@@ -151,8 +152,8 @@ function DocumentLibrary() {
 
   async function upload(file?: File) {
     if (!file || !config) return
-    if (!file.name.toLowerCase().endsWith('.docx') || file.size > config.maxBytes) {
-      setError(`仅支持不超过 ${config.maxBytes / 1024 / 1024} MiB 的 DOCX 文件`); return
+    if (!config.formats.includes(file.name.split('.').pop()!.toLowerCase()) || file.size > config.maxBytes) {
+      setError(`支持 ${config.formats.join('、')}，文件不得超过 ${config.maxBytes / 1024 / 1024} MiB`); return
     }
     const controller = new AbortController()
     uploadController.current = controller
@@ -165,24 +166,25 @@ function DocumentLibrary() {
   }
 
   return <section>
-    <PageHeader title="文档与协作" description="上传 DOCX，在 ONLYOFFICE 中编辑并保存到 ShareServer。当前为可信私有网络试用，尚无用户与组织权限隔离。" />
+    <PageHeader title="文档与协作" description="上传 Office 文件在线编辑。DOC、XLS、PPT 转换为现代格式，原文件保持不变；请核对转换结果，宏不保留。当前适用于可信私有网络。" />
     {loading && <p role="status">正在连接 Office 服务…</p>}
     {error && <div role="alert">{error} <Button variant="secondary" onClick={() => setRetry(retry + 1)}>刷新</Button></div>}
-    {config && !config.enabled && <p>Office 尚未启用，请按部署文档配置 FastAPI 和 ONLYOFFICE 服务。</p>}
+    {config && !config.enabled && <p>Office 尚未启用，请按部署文档配置 ShareServer 和 ONLYOFFICE 服务。</p>}
     {config?.enabled && <>
       <div className="mb-6 flex flex-wrap items-center gap-4">
-        <label className="text-sm">上传 DOCX（最大 {config.maxBytes / 1024 / 1024} MiB）
-          <input aria-label="上传 DOCX" className="ml-3" type="file" accept=".docx" disabled={uploading} onChange={event => { void upload(event.target.files?.[0]); event.target.value = '' }} />
+        <label className="text-sm">上传 Office 文件（最大 {config.maxBytes / 1024 / 1024} MiB）
+          <input aria-label="上传 Office 文件" className="ml-3" type="file" accept={config.formats.map(format => `.${format}`).join(',')} disabled={uploading} onChange={event => { void upload(event.target.files?.[0]); event.target.value = '' }} />
         </label>
         {uploading && <Button variant="secondary" onClick={() => uploadController.current?.abort()}>取消上传</Button>}
       </div>
-      {!documents.length && !loading && <p>暂无文档，上传第一个 DOCX 开始编辑。</p>}
+      {!documents.length && !loading && <p>暂无文档，上传 Office 文件开始编辑。</p>}
       <ul className="space-y-4">{documents.map(document => <li key={document.id} className="rounded-lg border border-[var(--border-default)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div><h2 className="font-medium">{document.name}</h2><p className="mt-2 text-sm text-[var(--text-muted)]">{states[document.state]} · 已持久化版本 {document.revision} · {new Date(document.updatedAt * 1000).toLocaleString()}</p></div>
           <div className="flex gap-4"><Link to={`/documents?document=${document.id}`}>打开编辑器</Link><a href={`/api/v1/office/documents/${document.id}/download`}>下载已保存版本</a></div>
         </div>
         {document.error && <p role="alert">{document.error}</p>}
+        {document.originalName && <p>转换来源：{document.originalName}；下载为 {document.name}</p>}
       </li>)}</ul>
     </>}
   </section>

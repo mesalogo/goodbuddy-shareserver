@@ -35,6 +35,8 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-shareserver}:${POSTGRES_PASSWORD:-shareserver-dev}@postgres:5432/${POSTGRES_DB:-shareserver}
+      SHARESERVER_AUTH_ENABLED: "true"
+      SHARESERVER_PUBLIC_URL: ${SHARESERVER_PUBLIC_URL:?Set the browser-visible ShareServer URL}
     ports:
       - "8787:8787"
     volumes:

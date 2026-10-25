@@ -72,7 +72,7 @@ def main():
             page.route('**/api/v1/office/documents/*/editor', configure)
             page.goto(args.web + '/documents')
             filename = f'gb-plugin-probe-{uuid.uuid4().hex[:8]}.docx'
-            page.get_by_label('上传 DOCX', exact=True).set_input_files({
+            page.get_by_label('上传 Office 文件', exact=True).set_input_files({
                 'name': filename,
                 'mimeType': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                 'buffer': docx(),

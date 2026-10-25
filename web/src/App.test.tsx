@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { pages } from './app-config'
 import App from './App'
+import { consoleModules } from '../../shared/console'
 
 describe('ShareServer console', () => {
   afterEach(() => {
@@ -17,6 +18,7 @@ describe('ShareServer console', () => {
       if (url === '/api/v1/gateway/access-keys') return { ok: true, json: async () => ({ accessKeys: [] }) }
       if (url === '/api/v1/sharing/devices') return { ok: true, json: async () => ({ devices: [] }) }
       if (url === '/api/v1/sharing/publications') return { ok: true, json: async () => ({ publications: [] }) }
+      if (url === '/api/v1/console') return { ok: true, json: async () => ({ records: [], audits: [] }) }
       throw new Error(`Unexpected request: ${url}`)
     }))
     window.history.replaceState({}, '', '/')
@@ -40,7 +42,7 @@ describe('ShareServer console', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v1/gateway/config', expect.anything())
   })
 
-  it.each(pages.filter((page) => !['/', '/capabilities', '/model-gateway', '/distribution', '/devices', '/documents'].includes(page.path)))(
+  it.each(pages.filter((page) => page.path.startsWith('/me/')))(
     'shows a boundary state without pretend actions at $path', (page) => {
       window.history.replaceState({}, '', page.path)
       render(<App />)
@@ -67,17 +69,24 @@ describe('ShareServer console', () => {
     expect(screen.getByRole('heading', { name: '组织与成员' })).toBeInTheDocument()
   })
 
+  it.each(Object.entries(consoleModules))('opens the persistent %s register', async (module, config) => {
+    window.history.replaceState({}, '', `/${module}`)
+    render(<App />)
+    expect(screen.getByRole('heading', { name: config.title })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: `创建${config.noun}` })).toBeInTheDocument()
+    expect(await screen.findByText(new RegExp(`尚无${config.noun}`))).toBeInTheDocument()
+  })
+
   it('preserves distribution and its link to the real gateway', async () => {
     window.history.replaceState({}, '', '/distribution')
     render(<App />)
-    expect(screen.getByText('尚无配置下发服务')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '创建配置草稿' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '创建配置草稿' })).toBeInTheDocument()
+    await screen.findByText(/尚无配置草稿/)
     expect(screen.queryByText(/org-chat|org-code|工程工作站/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('link', { name: '前往模型网关' }))
     expect(await screen.findByText(/尚无上游服务/)).toBeInTheDocument()
     await screen.findByText(/暂无访问密钥/)
-    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(fetch).toHaveBeenCalledTimes(3)
     expect(fetch).toHaveBeenCalledWith('/api/v1/gateway/config', expect.anything())
   })
 

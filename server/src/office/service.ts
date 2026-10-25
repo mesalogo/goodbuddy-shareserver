@@ -7,6 +7,7 @@ import { HTTPException } from 'hono/http-exception'
 import { SignJWT, jwtVerify } from 'jose'
 import { unzip } from 'fflate'
 import { XMLParser, XMLValidator } from 'fast-xml-parser'
+import { officeFormats, conversionFormats, inputFormats, fileExtension, outputFormat, type OfficeFormat } from './formats.js'
 
 function origin(value: string) {
   const url = new URL(value)
@@ -29,12 +30,13 @@ export function officeSettings(env = process.env) {
 }
 type Version = { file: string; digest: string; size: number }
 type Session = { key: string; state: string; source: string; nonce: string; sequence: number; pending: string | null; completed: string[] }
-type Document = Partial<Version> & { id: string; name: string; revision: number; updatedAt?: number; session: Session | null; versions?: Record<string, Version>; error?: string | null }
+type Document = Partial<Version> & { id: string; name: string; originalName?: string; revision: number; updatedAt?: number; session: Session | null; versions?: Record<string, Version>; error?: string | null }
 type Payload = Record<string, unknown>
 const id = () => randomUUID().replaceAll('-', '')
 const fail = (status: 400 | 401 | 404 | 409 | 413 | 422 | 502 | 503 | 507, message: string): never => { throw new HTTPException(status, { message }) }
 
-export async function validateDocx(content: Uint8Array, limit: number) {
+export async function validateOffice(content: Uint8Array, limit: number, format: OfficeFormat) {
+  const definition = officeFormats[format]
   try {
     let count = 0, expanded = 0
     const names = new Set<string>()
@@ -47,16 +49,16 @@ export async function validateDocx(content: Uint8Array, limit: number) {
         return !invalid
       }
     }, (error, result) => error ? reject(error) : resolve(result)))
-    if (invalid || !['[Content_Types].xml', '_rels/.rels', 'word/document.xml'].every(n => files[n])) throw new Error('Invalid archive')
+    if (invalid || !['[Content_Types].xml', '_rels/.rels', definition.part].every(n => files[n])) throw new Error('Invalid archive')
     const types = Buffer.from(files['[Content_Types].xml']).toString('utf8')
-    const document = Buffer.from(files['word/document.xml']).toString('utf8')
+    const document = Buffer.from(files[definition.part]).toString('utf8')
     if ([types, document].some(xml => /<!DOCTYPE|<!ENTITY/i.test(xml) || XMLValidator.validate(xml) !== true)) throw new Error('Invalid XML')
     const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true })
     const parsed = parser.parse(types)
     const overrides = parsed.Types?.Override
-    if (![overrides].flat().some(item => item?.['@_PartName'] === '/word/document.xml' && item?.['@_ContentType'] === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml')) throw new Error('Not DOCX')
-    if (!parser.parse(document).document || !document.includes('http://schemas.openxmlformats.org/wordprocessingml/2006/main')) throw new Error('Not Word XML')
-  } catch { fail(422, '文件不是受支持的 DOCX，或解压后超过限制') }
+    if (![overrides].flat().some(item => item?.['@_PartName'] === `/${definition.part}` && item?.['@_ContentType'] === definition.contentType)) throw new Error('Wrong document type')
+    if (!parser.parse(document)[definition.root] || !document.includes(`http://schemas.openxmlformats.org/${definition.namespace}/2006/main`)) throw new Error('Invalid document XML')
+  } catch { fail(422, `文件不是受支持的 ${format.toUpperCase()}，或解压后超过限制`) }
 }
 
 async function atomicWrite(path: string, content: Uint8Array | string) {
@@ -89,6 +91,7 @@ async function bounded(body: ReadableStream<Uint8Array> | null, limit: number) {
 export function createOfficeService(cfg = officeSettings(), request: typeof fetch = fetch) {
   const routes = new Hono()
   const secret = new TextEncoder().encode(cfg.secret)
+  const conversionSources = new Map<string, Uint8Array>()
   let queue: Promise<unknown> = Promise.resolve()
   function locked<T>(work: () => Promise<T>): Promise<T> {
     const result = queue.then(work)
@@ -103,17 +106,18 @@ export function createOfficeService(cfg = officeSettings(), request: typeof fetc
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') fail(404, '文档不存在'); throw error }
   }
   const store = (record: Document) => atomicWrite(join(cfg.root, `${record.id}.json`), JSON.stringify(record))
-  const summary = (r: Document) => ({ id: r.id, name: r.name, revision: r.revision, size: r.size, updatedAt: r.updatedAt, digest: r.digest, state: r.session?.state ?? 'saved', error: r.error ?? null })
+  const summary = (r: Document) => ({ id: r.id, name: r.name, originalName: r.originalName, requiresSaveAs: !!r.originalName, revision: r.revision, size: r.size, updatedAt: r.updatedAt, digest: r.digest, state: r.session?.state ?? 'saved', error: r.error ?? null })
   async function version(record: Document, content: Uint8Array) {
-    await validateDocx(content, cfg.limit)
+    const format = outputFormat(record.name)
+    await validateOffice(content, cfg.limit, format)
     let used = 0
-    for (const name of await readdir(cfg.root)) if (name.endsWith('.docx')) used += (await stat(join(cfg.root, name))).size
+    for (const name of await readdir(cfg.root)) if (Object.hasOwn(officeFormats, fileExtension(name))) used += (await stat(join(cfg.root, name))).size
     if (used + content.length > cfg.quota) fail(507, 'Office 存储额度不足')
     const digest = createHash('sha256').update(content).digest('hex')
     if (digest === record.digest) return
     const versions = record.versions ??= {}
     if (record.file) versions[String(record.revision)] = { file: record.file, digest: record.digest!, size: record.size! }
-    const file = `${record.id}-${id()}.docx`
+    const file = `${record.id}-${id()}.${format}`
     await atomicWrite(join(cfg.root, file), content)
     Object.assign(record, { file, digest, revision: record.revision + 1, size: content.length, updatedAt: Date.now() / 1000 })
     versions[String(record.revision)] = { file, digest, size: content.length }
@@ -142,7 +146,39 @@ export function createOfficeService(cfg = officeSettings(), request: typeof fetc
     console.error('Office operation failed', error)
     return c.json({ detail: 'Office 操作失败，最近成功版本保留' }, 500)
   })
-  routes.get('/api/v1/office/config', c => c.json({ enabled: cfg.enabled, maxBytes: cfg.limit, publicUrl: cfg.public, formats: ['docx'], versionedDownload: true, productionReady: false }))
+  routes.get('/api/v1/office/config', c => c.json({ enabled: cfg.enabled, maxBytes: cfg.limit, publicUrl: cfg.public, formats: inputFormats, directFormats: Object.keys(officeFormats), conversions: conversionFormats, versionedDownload: true, productionReady: false }))
+  routes.get('/internal/office/conversion/:key/source', async c => {
+    enabled()
+    const key = c.req.param('key'), content = conversionSources.get(key)
+    if (!content) return fail(404, '转换源文件已释放，请重新上传')
+    const claims = await decode((c.req.header('authorization') ?? '').replace(/^Bearer /, ''))
+    if (((claims.payload ?? claims) as Payload).url !== `${cfg.api}/internal/office/conversion/${key}/source`) fail(401, '转换源签名地址不匹配')
+    return new Response(Buffer.from(content), { headers: { 'Content-Type': 'application/octet-stream' } })
+  })
+  async function convert(content: Uint8Array, name: string): Promise<Uint8Array> {
+    // Old binary Office formats are compound files; reject other data before invoking Docs.
+    if (!Buffer.from(content.subarray(0, 8)).equals(Buffer.from('d0cf11e0a1b11ae1', 'hex'))) fail(422, '文件不是受支持的旧版 Office 二进制文件')
+    const key = id()
+    conversionSources.set(key, content)
+    try {
+      const payload = { async: false, filetype: fileExtension(name), outputtype: outputFormat(name), key,
+        url: `${cfg.api}/internal/office/conversion/${key}/source`, title: name }
+      const response = await request(`${cfg.internal}/converter`, { method: 'POST', redirect: 'error',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ ...payload, token: await sign(payload) }), signal: AbortSignal.timeout(cfg.timeout) })
+      if (!response.ok) return fail(502, `转换服务 HTTP ${response.status}`)
+      const result = await response.json() as { error?: number; endConvert?: boolean; fileUrl?: string }
+      if (result.error || !result.endConvert || !result.fileUrl) return fail(502, `旧格式转换失败（${result.error ?? '未完成'}），原文件未修改`)
+      const url = new URL(result.fileUrl)
+      if (url.username || url.password || ![cfg.internal, cfg.public].includes(url.origin)) return fail(502, '转换结果地址无效')
+      const download = await request(`${cfg.internal}${url.pathname}${url.search}`, { redirect: 'error', signal: AbortSignal.timeout(cfg.timeout) })
+      if (!download.ok) return fail(502, '无法下载转换结果')
+      return await bounded(download.body, cfg.limit)
+    } catch (error) {
+      if (error instanceof HTTPException) throw error
+      return fail(502, '旧格式转换或下载失败，请重试；原文件未修改')
+    } finally { conversionSources.delete(key) }
+  }
   routes.get('/api/v1/office/documents', async c => {
     enabled()
     return c.json(await locked(async () => ({ documents: await Promise.all((await readdir(cfg.root)).filter(n => n.endsWith('.json')).sort().map(async n => summary(JSON.parse(await readFile(join(cfg.root, n), 'utf8'))))) })))
@@ -150,10 +186,13 @@ export function createOfficeService(cfg = officeSettings(), request: typeof fetc
   routes.post('/api/v1/office/documents', async c => {
     enabled()
     const name = c.req.query('name') ?? ''
-    if (!/\.docx$/i.test(name) || name.length > 200 || /[/\\\r\n]/.test(name)) fail(422, '请使用有效的 DOCX 文件名（最多 200 字符）')
-    const content = await bounded(c.req.raw.body, cfg.limit)
+    if (!/\.[^.]+$/.test(name) || !inputFormats.includes(fileExtension(name)) || name.length > 200 || /[/\\\r\n]/.test(name)) fail(422, '请使用有效的 Office 文件名（最多 200 字符）')
+    let content: Uint8Array = await bounded(c.req.raw.body, cfg.limit)
+    const converted = Object.hasOwn(conversionFormats, fileExtension(name))
+    if (converted) content = await convert(content, name)
     const result = await locked(async () => {
-      const record: Document = { id: id(), name, revision: 0, session: null }
+      const record: Document = { id: id(), name: converted ? name.replace(/\.[^.]+$/, `.${outputFormat(name)}`) : name,
+        ...(converted ? { originalName: name } : {}), revision: 0, session: null }
       await version(record, content); await store(record); return summary(record)
     })
     return c.json(result, 201)
@@ -166,7 +205,7 @@ export function createOfficeService(cfg = officeSettings(), request: typeof fetc
     const selected = revision === record.revision ? record : record.versions?.[String(revision)]
     if (!selected?.file) return fail(404, '该文档版本不存在')
     return new Response(await readFile(join(cfg.root, selected.file)), { headers: {
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'Content-Type': officeFormats[outputFormat(record.name)].mime,
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(record.name)}`,
       ETag: `"${selected.digest}"`, 'X-Office-Revision': String(revision), 'Cache-Control': 'no-store'
     } })
@@ -181,8 +220,8 @@ export function createOfficeService(cfg = officeSettings(), request: typeof fetc
     }
     const base = `${cfg.api}/internal/office/${record.id}/${current.key}`
     const configuration = {
-      documentType: 'word', type: 'desktop',
-      document: { fileType: 'docx', key: current.key, title: record.name, url: `${base}/source?access=${current.nonce}` },
+      documentType: officeFormats[outputFormat(record.name)].documentType, type: 'desktop',
+      document: { fileType: outputFormat(record.name), key: current.key, title: record.name, url: `${base}/source?access=${current.nonce}` },
       editorConfig: { mode: 'edit', lang: 'zh-CN', callbackUrl: `${base}/callback`, customization: { forcesave: false },
         plugins: { autostart: ['asc.{C32D455A-5134-4E5C-A161-D919D9380020}'], pluginsData: [`${new URL(c.req.url).origin}/api/v1/office/plugin/config.json`] } }
     }
@@ -206,7 +245,7 @@ export function createOfficeService(cfg = officeSettings(), request: typeof fetc
     const claims = await decode((c.req.header('authorization') ?? '').replace(/^Bearer /, ''))
     const payload = (claims.payload ?? claims) as Payload
     if (payload.url !== `${cfg.api}/internal/office/${record.id}/${current.key}/source?access=${access}`) fail(401, '文件签名地址不匹配')
-    return new Response(await readFile(join(cfg.root, current.source)), { headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' } })
+    return new Response(await readFile(join(cfg.root, current.source)), { headers: { 'Content-Type': officeFormats[outputFormat(record.name)].mime } })
   })
   routes.post('/api/v1/office/documents/:id/save', async c => {
     const payload = await locked(async () => {

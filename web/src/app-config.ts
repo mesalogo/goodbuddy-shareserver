@@ -64,7 +64,7 @@ export const pages: PageConfig[] = [
   {
     path: '/distribution',
     title: '配置下发',
-    description: '配置分发尚未接入；可先在模型网关配置与测试真实上游。',
+    description: '保存、审核和导出配置草稿，供客户端人工配置。',
     icon: Send,
     role: 'admin',
     group: 'GoodBuddy 服务',

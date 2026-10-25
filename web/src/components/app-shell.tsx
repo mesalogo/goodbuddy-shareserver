@@ -10,6 +10,7 @@ import { NavLink } from 'react-router-dom'
 import { pages } from '../app-config'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
+import { useAuth } from './auth-boundary'
 
 function BrandMark() {
   return (
@@ -27,6 +28,9 @@ export function AppShell({
 }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [dark, setDark] = useState(true)
+  const auth = useAuth()
+  const [logoutError, setLogoutError] = useState('')
+  const [loggingOut, setLoggingOut] = useState(false)
   const groupOrder = ['工作台', 'GoodBuddy 服务', '共享资源', '组织管理', '运营与审计', '系统', '成员自助']
   const navigation = pages.map((page) => ({
     ...page,
@@ -134,6 +138,8 @@ export function AppShell({
             <Menu className="size-5" />
           </Button>
           <div className="ml-auto flex items-center gap-1">
+            {logoutError && <p role="alert" className="text-sm">{logoutError}</p>}
+            {auth && <><span className="max-w-32 truncate text-sm">{auth.username}</span><Button variant="ghost" disabled={loggingOut} onClick={() => { setLoggingOut(true); setLogoutError(''); void auth.logout().catch(() => setLogoutError('退出失败，请重试。')).finally(() => setLoggingOut(false)) }}>退出登录</Button></>}
              <Button
               aria-label={dark ? '切换到浅色主题' : '切换到深色主题'}
               size="icon"

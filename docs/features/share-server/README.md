@@ -29,6 +29,8 @@ ShareServer 不属于 Electron Main，不负责桌面端局域网发现，也不
 | [功能逻辑](./logic-design.md) | 组织隔离、设备、发布、策略、任务和联邦状态规则 |
 | [管理界面设计](./ui-design.md) | ShareServer Web 控制台的信息架构与交互 |
 | [技术设计](./technical-design.md) | 服务模块、API、数据、部署、运维和验证 |
+| [管理登记第一版](./management-register.md) | 人工管理登记的交互、状态、持久化接口与当前边界 |
+| [管理员登录第一版](./admin-login.md) | 首次初始化、登录会话、LAN 管理与当前认证范围 |
 | [后端基础设计](./backend-foundation-design.md) | GoodBuddy 适配依据；B1 已实现、验收部分完成，B2 至 B6 待实现 |
 | [实施进度](./progress.md) | 已验证实现、剩余生产工作与验证证据 |
 | [共享网络总体设计](../../../../goodbuddy/docs/architecture/share-network-architecture.md) | 跨端身份、能力、授权、任务、更新和协议权威（GoodBuddy 仓库） |
@@ -50,15 +52,16 @@ GoodBuddy 注册和发布的元数据，网关独立保存上游、模型映射�
 ## GoodBuddy 服务入口
 
 `/model-gateway` 提供上游与模型映射保存、服务端加密凭据、模型访问 Key、真实模型发现、请求测试
-和调用元数据审计。管理仅限直连回环，客户端通过 Bearer Key 访问获授权的模型；组织认证、组织
+和调用元数据审计。Compose 部署通过管理员会话管理；未启用认证的开发模式仅限直连回环。
+客户端通过 Bearer Key 访问获授权的模型；组织认证、组织
 隔离及配额控制仍待实现。旧环境引用保留存储兼容，前缀导入界面和接口已移除。
 网关独立于 GoodBuddy 运行，无桌面源码依赖；个人既有配置仅可用于明确授权的环境测试，不自动读取或迁移。
 启动方法及客户端 Base URL 见[根 README](../../../README.md#local-model-gateway)，接口、存储和限制见
 [技术设计第 4.2 节](./technical-design.md#42-本地模型网关契约已实现)。
 
-`/documents` 提供真实 DOCX 上传、列表、编辑及保存状态，Office 服务需要单独启用。`/distribution` 为待接入占位，
-无配置草稿、设备回执、发布或回滚；保存网关模型
-不会自动下发到 GoodBuddy。交互见 [UI 设计第 16.1 节](./ui-design.md#161-goodbuddy-服务入口)。
+`/documents` 提供真实 DOCX 上传、列表、编辑及保存状态，Office 服务需要单独启用。
+`/distribution` 已支持配置草稿登记、人工审核与 JSON 导出；设备回执、自动发布或回滚仍未接入。
+保存网关模型不会自动下发到 GoodBuddy。当前管理登记范围见[管理登记第一版](./management-register.md)。
 
 `/devices` 和共享中心沿用真实本地 API：前者展示登记设备及其发布数量，后者直接读取设备与发布记录，支持筛选、设备跳转和撤销已发布元数据；已移除组织示例页签。
 来源模式与知识权限仅为声明，尚无正文服务。交互约定见

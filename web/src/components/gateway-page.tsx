@@ -111,7 +111,7 @@ export function GatewayPage() {
   return <div className="min-w-0 space-y-5 text-[var(--text-primary)]">
     <PageHeader eyebrow="当前服务器 · 本地技术预览" title="模型网关" description="真实保存上游与模型别名，向上游转发请求并查看调用元数据。ShareServer 不运行模型。" action={<Button disabled={busy} onClick={() => { setActionError(''); setAuthentication('api-key'); setEditor({ kind: 'upstream' }) }}>添加上游</Button>} />
     <aside className={panel} aria-label="网关使用说明">
-      <p className={muted}>管理操作仅限服务器本机。客户端通过访问密钥调用获授权的模型；尚无组织认证或配额控制。</p>
+      <p className={muted}>管理操作受实例访问控制保护。客户端通过访问密钥调用获授权的模型；组织成员授权和配额控制尚未接入。</p>
       <p className={muted}>先添加上游，再发现或手动添加模型，完成测试后创建客户端访问密钥。上游 API Key 加密保存在服务器，编辑时不会返回原文。</p>
       <Button variant="secondary" disabled={busy} onClick={() => void refresh()}>{loading ? '正在刷新…' : '刷新配置与审计'}</Button>
     </aside>

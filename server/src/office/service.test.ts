@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { zipSync, strToU8 } from 'fflate'
 import { SignJWT, jwtVerify } from 'jose'
 import { createOfficeService, officeSettings } from './service.js'
+import { officeFormats, type OfficeFormat } from './formats.js'
 
 vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof import('node:fs/promises')>() }))
 
@@ -14,6 +15,15 @@ function docx(text = 'original') {
     '[Content_Types].xml': strToU8('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'),
     '_rels/.rels': strToU8('<Relationships/>'),
     'word/document.xml': strToU8(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`)
+  }, { mtime: new Date('2026-01-01') }))
+}
+function packageFor(format: OfficeFormat, text = 'original') {
+  if (format === 'docx') return docx(text)
+  const d = officeFormats[format]
+  return Buffer.from(zipSync({
+    '[Content_Types].xml': strToU8(`<Types><Override PartName="/${d.part}" ContentType="${d.contentType}"/></Types>`),
+    '_rels/.rels': strToU8('<Relationships/>'),
+    [d.part]: strToU8(`<${d.root} xmlns="http://schemas.openxmlformats.org/${d.namespace}/2006/main"><test>${text}</test></${d.root}>`)
   }, { mtime: new Date('2026-01-01') }))
 }
 describe('unified Office API', () => {
@@ -27,6 +37,13 @@ describe('unified Office API', () => {
       const body = JSON.parse(String(init.body))
       await jwtVerify(body.token, new TextEncoder().encode(cfg.secret))
       commands.push(body)
+      if (String(_url).endsWith('/converter')) {
+        const sourceUrl = new URL(body.url)
+        expect((await req(sourceUrl.pathname)).status).toBe(401)
+        const source = await req(sourceUrl.pathname, { headers: { authorization: `Bearer ${await sign({ payload: { url: body.url } })}` } })
+        expect(source.status).toBe(200)
+        return Response.json(commandError ? { error: commandError } : { endConvert: true, fileUrl: cfg.internal + '/cache/converted' })
+      }
       return Response.json({ error: commandError })
     }
     if (timeout) throw new Error('timeout')
@@ -53,6 +70,38 @@ describe('unified Office API', () => {
     service = createOfficeService(cfg, upstream); await service.initialize()
   })
   afterEach(async () => { await rm(cfg.root, { recursive: true, force: true }) })
+  it.each(['xlsx', 'pptx'] as const)('edits and persists %s without accepting the wrong save format', async format => {
+    const uploaded = await req(`/api/v1/office/documents?name=test.${format}`, { method: 'POST', body: packageFor(format) })
+    expect(uploaded.status).toBe(201)
+    const record = await uploaded.json(), config = await launch(record.id)
+    expect(config.documentType).toBe(officeFormats[format].documentType)
+    expect(config.document.fileType).toBe(format)
+    content = packageFor(format, 'changed')
+    expect(await (await callback(config, 2, { url: cfg.internal + '/cache/a' })).json()).toEqual({ error: 0 })
+    const downloaded = await req(`/api/v1/office/documents/${record.id}/download`)
+    expect(downloaded.headers.get('content-type')).toBe(officeFormats[format].mime)
+    expect(Buffer.from(await downloaded.arrayBuffer())).toEqual(content)
+    const second = await launch(record.id)
+    content = docx('wrong type')
+    expect((await callback(second, 2, { url: cfg.internal + '/cache/b' })).status).toBe(500)
+    expect((await (await req(`/api/v1/office/documents/${record.id}`)).json()).revision).toBe(2)
+  })
+  it.each([['doc', 'docx'], ['xls', 'xlsx'], ['ppt', 'pptx']] as const)('converts %s to %s and releases its temporary source', async (input, output) => {
+    content = packageFor(output)
+    const uploaded = await req(`/api/v1/office/documents?name=original.${input}`, { method: 'POST', body: Buffer.from('d0cf11e0a1b11ae100000000', 'hex') })
+    expect(uploaded.status).toBe(201)
+    const record = await uploaded.json()
+    expect(record).toMatchObject({ name: `original.${output}`, originalName: `original.${input}`, requiresSaveAs: true, revision: 1 })
+    expect((await launch(record.id)).document.fileType).toBe(output)
+    expect((await req(new URL(String(commands[0].url)).pathname)).status).toBe(404)
+  })
+  it('does not publish a document after conversion failure', async () => {
+    commandError = -3
+    const uploaded = await req('/api/v1/office/documents?name=original.doc', { method: 'POST', body: Buffer.from('d0cf11e0a1b11ae100000000', 'hex') })
+    expect(uploaded.status).toBe(502)
+    expect((await (await req('/api/v1/office/documents')).json()).documents).toEqual([])
+    expect((await req(new URL(String(commands[0].url)).pathname)).status).toBe(404)
+  })
   it('signs source and editor configs and publishes IP-based plugin URLs', async () => {
     const id = await upload(), config = await launch(id)
     expect((await launch(id)).document.key).toBe(config.document.key)

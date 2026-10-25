@@ -8,18 +8,22 @@ import { GatewayStore } from './gateway-store.js'
 import { gatewayRoutes } from './gateway-routes.js'
 import { localAdmin, type SocketBindings } from './admin-boundary.js'
 import { createOfficeService } from './office/service.js'
+import { ConsoleStore } from './console-store.js'
+import { consoleRoutes } from './console-routes.js'
+import { AuthService } from './auth.js'
 
 export const office = createOfficeService()
 
-export function createApp(store = new SharingStore(), gateway = new GatewayStore()) {
+export function createApp(store = new SharingStore(), gateway = new GatewayStore(), consoleStore = new ConsoleStore(), auth = new AuthService()) {
   const app = new Hono<{ Bindings: SocketBindings }>()
+  const admin = auth.enabled ? auth.requireAdmin : localAdmin
 
   app.use('*', logger())
   app.use('/api/*', async (c, next) => {
-    if (c.req.path.startsWith('/api/v1/office/') || c.req.path.startsWith('/api/v1/gateway/') || (c.req.method === 'GET' && ['/api/v1/public/health', '/api/v1/public/ready'].includes(c.req.path))) await next()
-    else return localAdmin(c, next)
+    if (c.req.path.startsWith('/api/v1/auth/') || c.req.path.startsWith('/api/v1/office/') || c.req.path.startsWith('/api/v1/gateway/') || (c.req.method === 'GET' && ['/api/v1/public/health', '/api/v1/public/ready'].includes(c.req.path))) await next()
+    else return admin(c, next)
   })
-  app.use('/api', localAdmin)
+  app.use('/api', admin)
   app.use(
     '*',
     async (c, next) => {
@@ -58,18 +62,18 @@ export function createApp(store = new SharingStore(), gateway = new GatewayStore
         persistence: process.env.DATABASE_URL ? 'postgresql-jsonb' : 'local-json',
         credentials: 'aes-256-gcm-and-legacy-environment-references',
         writerScope: 'single-process-single-store-per-data-directory',
-        networkBoundary: 'direct-loopback-admin-authenticated-inference',
+        networkBoundary: auth.enabled ? 'session-admin-authenticated-inference' : 'direct-loopback-admin-authenticated-inference',
         organizationAclEnforced: false,
         storageChecked: Boolean(process.env.DATABASE_URL)
       },
       sharing: {
         mode: 'local-metadata-only',
-        authentication: 'none',
+        authentication: auth.enabled ? 'admin-session' : 'none',
         persistence: process.env.DATABASE_URL ? 'postgresql-jsonb' : 'local-json',
         writerScope: 'single-process-single-store-per-data-directory',
         sourceMode: 'descriptive-only-no-content-sync',
         permissionsEnforced: false,
-        networkBoundary: 'trusted-local-test-service',
+        networkBoundary: auth.enabled ? 'session-admin-metadata-service' : 'trusted-local-test-service',
         storageChecked: Boolean(process.env.DATABASE_URL)
       }
     })
@@ -108,7 +112,9 @@ export function createApp(store = new SharingStore(), gateway = new GatewayStore
   })
 
   app.route('/api/v1/sharing', sharingRoutes(store))
-  app.route('/api/v1/gateway', gatewayRoutes(gateway))
+  app.route('/api/v1/console', consoleRoutes(consoleStore))
+  app.route('/api/v1/gateway', gatewayRoutes(gateway, 120_000, admin))
+  app.route('/api/v1/auth', auth.routes())
   app.route('/', office.routes)
 
   app.all('/api/*', (context) => context.json({
@@ -121,5 +127,6 @@ export function createApp(store = new SharingStore(), gateway = new GatewayStore
   return app
 }
 
-const app = createApp()
-export { app }
+const auth = new AuthService()
+const app = createApp(undefined, undefined, undefined, auth)
+export { app, auth }

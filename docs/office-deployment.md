@@ -5,6 +5,24 @@ ShareServer 自身采用前后端分离：`web/` 是 React 前端，`server/` �
 ONLYOFFICE 是独立编辑引擎；无需 Python/FastAPI 或 office-api 容器。
 当前 Office 没有用户认证和组织隔离，仅适用于受控私有网络。
 
+## GoodBuddy 文件入口与能力检查
+
+GB 在“设置 → 平台功能 → ShareServer 连接”配置本服务的 Web origin，例如
+`http://<主机IP>:8088`，点击“连接并检查能力”。客户端不配置 ONLYOFFICE JWT。
+不是所有 ShareServer 都启用了 Office：`GET /api/v1/office/config` 返回
+`enabled`、`formats`、`maxBytes` 和 `versionedDownload`。`directFormats` 为 DOCX、XLSX、PPTX；
+`conversions` 声明 DOC → DOCX、XLS → XLSX、PPT → PPTX，`formats` 包含六种可上传格式。
+仅连接成功不代表编辑引擎健康，仍须验证真实文档打开与保存。
+
+工作区文件、会话文件链接及附件的显式在线编辑动作复用同一连接。已有配置时检查能力后上传，
+没有配置时保留文件来源并引导配置；普通文件阅读不创建服务器文档。
+远程 Agent 文件由 GB 经所属 Workspace 通道读取，再上传编辑副本。
+保存先生成服务端版本，再由 GB 下载确定 revision 并检查来源摘要后回写；不可覆盖的附件另存为。
+旧格式通过 ONLYOFFICE `/converter` 转换，不需要业务 Python 或 LibreOffice 服务。
+转换结果返回 `originalName` 和 `requiresSaveAs=true`，GB 另存为现代格式，原件不变。
+请核对转换后的版式、公式和嵌入对象；不支持宏保留、密码文件或旧格式反向保存。
+入口与客户端验收范围见 [GB Office 进度](../../goodbuddy/docs/features/office-document-editing/progress.md)。
+
 ## Docker Compose
 
 在仓库根目录准备目录（Office API 以 UID 1000 运行）：
@@ -23,6 +41,7 @@ ONLYOFFICE_JWT_SECRET=<上面生成的随机值>
 ONLYOFFICE_PUBLIC_URL=http://<主机IP>:8080
 SHARESERVER_BIND_ADDRESS=0.0.0.0
 SHARESERVER_WEB_PORT=8088
+SHARESERVER_PUBLIC_URL=http://<主机IP>:8088
 OFFICE_BIND_ADDRESS=0.0.0.0
 ```
 
@@ -40,7 +59,9 @@ docker compose --env-file .env.office -f docker/compose.yaml -f docker/compose.o
 
 浏览器打开 **http://<主机IP>:8088/documents**。8088 是整个 ShareServer 的 Web 入口；
 8787 是统一 API，不再提供静态页面。开发模式 Vite 将所有 `/api` 转发至 8787。
-模型网关和共享目录管理仍受 Hono 原有直连回环限制，通过此 Nginx 访问会返回 403。
+Compose 已启用实例管理员认证，首次打开需按[管理员初始化说明](features/share-server/admin-login.md)
+创建账号；登录后可以通过 Nginx 管理模型网关、共享目录和登记记录。Office API 与 Docs 回调
+仍沿用现有私有网络协议，尚未建立文档级用户授权。
 
 | 地址 | 默认值 | 访问者 |
 | --- | --- | --- |
@@ -94,8 +115,9 @@ npm test
 | `OFFICE_TIMEOUT_SECONDS` | 30 秒 |
 
 修改上传上限时须同步 `docker/web.conf` 的 `client_max_body_size`。
-文件按上限读入内存后检查 ZIP、DOCX 主内容类型、文档 XML、重复条目和解压大小；仅支持 DOCX。
-不可变 `.docx` 版本和文档 `.json` 元数据都位于 `data/office`；元数据原子替换是版本发布点。
+文件按上限读入内存后检查 ZIP、对应 OOXML 主内容类型、文档 XML、重复条目和解压大小。
+旧格式检查复合文件头后交由 Docs 转换，转换结果按同一规则校验。
+不可变 `.docx/.xlsx/.pptx` 版本和文档 `.json` 元数据都位于 `data/office`；元数据原子替换是版本发布点。
 先同步文件，再提交元数据，成功后才确认保存。只运行一个 ShareServer 写进程／容器；
 Office 在进程内串行提交，不支持多实例共写同一目录。
 备份需要暂停编辑和服务后复制整个目录，不能只备份 ONLYOFFICE 缓存。
@@ -106,8 +128,8 @@ Office 在进程内串行提交，不支持多实例共写同一目录。
 保留最近成功版本，不自动抛弃未保存编辑。可先下载已保存版本；故障轮次的人工恢复工具尚未实现。
 没有自动版本回收；达到额度后保存会失败，需扩容并重试，不能直接删除元数据引用的文件。
 
-GoodBuddy 当前入口为工作栏“+ → 文档”，填写本服务的 Web origin（默认 `http://localhost:8088`），
-选择本地 DOCX 后打开 `/office/editor?document=<文档ID>`。需要同时更新 ShareServer 和 Web，
+GoodBuddy 在共享连接设置中填写本服务的 Web origin，文件入口或“+ → 文档”打开
+`/office/editor?document=<文档ID>`。需要同时更新 ShareServer 和 Web，
 客户端要求 `/config` 的 `versionedDownload=true`，按确定 revision 下载并校验摘要后回写本地。
 普通浏览器继续使用 `/documents` 或 `/documents?document=<文档ID>`。
 JWT 秘密只由服务端持有。生产选区插件已提供；登录尚未实现。Desktop 实际范围与证据见
@@ -118,11 +140,17 @@ JWT 秘密只由服务端持有。生产选区插件已提供；登录尚未实�
 单元测试使用可控上游；2026-10-25 另完成真实浏览器往返，证据见
 [实施进度](features/share-server/progress.md)。新部署须按实际主机 IP（或域名）和网络验收：
 
-1. 上传 DOCX，打开编辑器，确认 Docs 下载源文件成功。
+1. 分别上传三种现代格式和三种旧格式，确认直接打开／转换后打开成功。
 2. 修改内容并保存到服务器，看到 revision 更新；继续编辑时 key 保持不变。
 3. 关闭编辑器，等待最终保存；重新打开并下载，确认修改一致。
 4. 重启 ShareServer 后端，再次打开并下载，确认持久化内容仍在。
 5. 多窗口共同编辑、断网重连和待确认轮次恢复需要单独验证。
+
+可复现六格式探针：先 `npm run build`，准备可选测试依赖 Playwright、python-docx、openpyxl、
+python-pptx 和 LibreOffice，然后运行 `python scripts/office-e2e/formats_probe.py --host <主机IP>`。
+`--browser <Chromium路径>` 可指定现有浏览器，`--desktop` 追加相邻 GB 仓库的真实 Electron DOC 另存为测试。
+脚本使用隔离的 18087/18088 API/Web 和临时数据，复用主机 8080 Docs 与 `.env.office` JWT，
+不重启常驻服务。LibreOffice 仅用于生成旧格式测试样本，不参与产品转换。
 
 `/api/v1/public/health` 只代表后端存活，不能说明 Docs 可用或编辑往返通过。
 
