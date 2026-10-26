@@ -22,17 +22,26 @@ GB 在“设置 → 平台功能 → ShareServer 连接”配置本服务的 Web
 保存先生成服务端版本，再由 GB 下载确定 revision 并检查来源摘要后回写；不可覆盖的附件另存为。
 旧格式通过 ONLYOFFICE `/converter` 转换，不需要业务 Python 或 LibreOffice 服务。
 转换结果返回 `originalName` 和 `requiresSaveAs=true`，GB 另存为现代格式，原件不变。
-嵌入页铺满文档区域，不显示重复的文件名、保存按钮或版本说明。ONLYOFFICE 自身保存进入服务器；
-GB 的 Ctrl/Cmd+S 保存回源文件，Ctrl/Cmd+Shift+S 另存为，关闭时保留保存确认。
+嵌入页铺满文档区域，不显示重复的文件名、保存按钮或版本说明。ONLYOFFICE 自身保存进入服务器后，
+新版 GB 自动回写源文件；Ctrl/Cmd+S 同样保存回源文件，Ctrl/Cmd+Shift+S 另存为，关闭时保留保存确认。
+自动回写需要新版客户端的专用保存桥；旧客户端仍需保存快捷键。冲突或取消首次另存为后暂停自动回写，显式保存成功后恢复。
+Word／PPT 文字选区和 Excel 单元格区域支持右键 AI 编辑，弹窗在编辑区域内显示。
+需要包含专用 Office preload 的新版 GB，使用当前对话 Runtime；ShareServer 不接收模型凭据或直接调用模型。
+Excel 结果以表格呈现，默认保护公式，可显式允许修改；单次最多 400 格和 32000 字，行列数必须一致。
 请核对转换后的版式、公式和嵌入对象；不支持宏保留、密码文件或旧格式反向保存。
 入口与客户端验收范围见 [GB Office 进度](../../goodbuddy/docs/features/office-document-editing/progress.md)。
 
 ## Docker Compose
 
+当前默认引擎是本地构建的 Community 10.0.0-169，连接数上限 9999。
+先在相邻 `goodbuddy-onlyoffice-server` 项目执行 `node scripts/build.mjs`；镜像尚未发布到远端仓库，
+部署到其他主机时必须先构建或传输镜像。上游锁定及验证见
+[独立构建说明](../../goodbuddy-onlyoffice-server/README.md)。
+
 在仓库根目录准备目录（Office API 以 UID 1000 运行）：
 
 ```bash
-mkdir -p data/office data/onlyoffice/{logs,data,lib,db}
+mkdir -p data/office data/onlyoffice-community/{logs,data,lib,db}
 sudo chown 1000:1000 data data/office
 openssl rand -hex 32
 ```
@@ -40,20 +49,22 @@ openssl rand -hex 32
 将随机值和镜像写入本机 `.env.office`，不要提交此文件：
 
 ```dotenv
-ONLYOFFICE_IMAGE=onlyoffice/documentserver:10.0@sha256:ca17889f10b11141cc6441836aebdd2835cf3e1b49681b2fd6e155c94b7850b3
+ONLYOFFICE_IMAGE=goodbuddy/onlyoffice-server:10.0.0-169-ce9999
+ONLYOFFICE_DATA_ROOT=../data/onlyoffice-community
 ONLYOFFICE_JWT_SECRET=<上面生成的随机值>
 ONLYOFFICE_PUBLIC_URL=http://<主机IP>:8080
 SHARESERVER_BIND_ADDRESS=0.0.0.0
 SHARESERVER_WEB_PORT=8088
 SHARESERVER_PUBLIC_URL=http://<主机IP>:8088
 OFFICE_BIND_ADDRESS=0.0.0.0
+OFFICE_WHITE_LABEL_ENABLED=false
 ```
 
-也可从 `docker/office.env.example` 复制配置。默认 overlay 已固定用户指定的 Community 10.0
-镜像 digest，容器内包版本为 10.0.0-169。2026-10-25 已验证真实浏览器编辑保存、重开、API
-重启持久化及普通插件选区替换与撤销，详见 [10.0 验证记录](office-10-validation.md)。
-这些结果不等于 Developer Edition Automation API 或 GB Desktop 接入验收。已有 `.env.office`
-若仍指定旧镜像，需要同步修改；环境变量优先于 Compose 默认值。
+也可从 `docker/office.env.example` 复制配置。Community 保持原生 `end_date=null`、`trial=false`，
+不提供 DE 品牌或高级 API 授权。白标开关保持 false；之前的 DE Logo 验证不能作为当前 Community 的品牌能力证明。
+历史验证见 [品牌与许可证说明](office-branding.md) 与 [10.0 验证记录](office-10-validation.md)。
+已有 `.env.office` 若仍指定旧镜像，需要同步修改；环境变量优先于 Compose 默认值。
+`ONLYOFFICE_DATA_ROOT` 相对于 Compose 文件所在的 `docker/` 目录，DE 与 Community 应使用独立目录。
 
 ```bash
 docker compose --env-file .env.office -f docker/compose.yaml -f docker/compose.office.yaml config --quiet
@@ -141,6 +152,26 @@ JWT 秘密只由服务端持有。生产选区插件已提供；登录尚未实�
 
 ## 实际验收
 
+2026-10-26 本机已从 DE 切换到 Community 9999：先保存并通过官方维护关闭接口结束现有 PPT 会话，
+备份到 `data/office-before-community-20261026.tar.gz`（含本机配置，勿提交或公开）。
+切换前后 21 份主文档的 revision 和下载 SHA-256 一致，内网 IP 健康检查及运行时 9999/null 状态通过。
+原 DE 数据保留在 `data/onlyoffice/`，新引擎使用 `data/onlyoffice-community/`。
+切换后六格式的真实浏览器打开、键盘修改、保存回调及下载内容核对全部通过；探针使用隔离 API/Web
+连接已部署的新引擎。常驻 8088 页面也已重新打开原有 PPT，验证历史文件可正常加载。
+本轮未重跑完整 GB Electron AI 流程或 9999 并发压测。
+
+回滚时先完成当前编辑会话的保存并执行维护关闭，再指定旧镜像和旧引擎目录：
+
+```bash
+docker exec goodbuddy-shareserver-onlyoffice-1 documentserver-prepare4shutdown.sh
+ONLYOFFICE_IMAGE=onlyoffice/documentserver-de:10.0 ONLYOFFICE_DATA_ROOT=../data/onlyoffice \
+  docker compose --env-file .env.office -f docker/compose.yaml -f docker/compose.office.yaml \
+  up -d --no-deps --pull never onlyoffice
+```
+
+维护关闭后应确认文档没有 editing/saving 轮次再执行替换。主文档 `data/office` 保留当前版本，
+不要为回滚引擎直接覆盖为旧备份。需要长期保留回滚配置时，将对应值写入本机 `.env.office`。
+
 单元测试使用可控上游；2026-10-25 另完成真实浏览器往返，证据见
 [实施进度](features/share-server/progress.md)。新部署须按实际主机 IP（或域名）和网络验收：
 
@@ -162,3 +193,18 @@ python-pptx 和 LibreOffice，然后运行 `python scripts/office-e2e/formats_pr
 `office-web` 容器，启动统一 `shareserver` 和 `web`。保留整个 `data/office/`，不要删除数据卷。
 已发布文档 ID、revision、摘要与文件格式保持一致；旧编辑轮次中的 `office-api:8000` 地址
 不再保留，不能在编辑器仍打开时直接迁移。Python 只用于可选浏览器验证脚本，不参与服务运行。
+
+## 2026-10-26 本机定制镜像部署记录
+
+常驻 ONLYOFFICE 已切换到 `goodbuddy/onlyoffice-server:10.0.0-169-ce9999-ui1`。
+统一后端已重新构建，启用 `OFFICE_CUSTOM_UI_ENABLED=true`，保持
+`OFFICE_WHITE_LABEL_ENABLED=false`。Web 地址仍为 `http://192.168.0.23:8088`，
+编辑引擎地址仍为 `http://192.168.0.23:8080`。
+
+用户确认文档正常后继续切换，保留原 editing/recovering 状态，没有强行关闭元数据。
+25 份原有文档的已保存版本和下载摘要切换前后完全一致；这不代表未确认编辑缓存的恢复。
+六格式浏览器编辑、转换、保存及品牌布局回归通过；常驻页面原 PPT 重新打开并加载
+GoodBuddy 品牌配置。完整 GB AI 本次未重跑。
+
+回滚镜像、备份位置和后续升级流程见
+[构建项目维护文档](../../goodbuddy-onlyoffice-server/MAINTENANCE.md#2026-10-26-继续部署结果)。
