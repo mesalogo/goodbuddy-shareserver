@@ -1,5 +1,6 @@
 import { useId } from 'react'
 import { cn } from '../lib/utils'
+import { useI18n } from '../lib/i18n'
 
 export type PageTab = { label: string; key: string }
 
@@ -15,7 +16,8 @@ export function PageTabs({
   onChange: (key: string) => void
 }) {
   const id = useId()
-  return <div role="tablist" aria-label={`${title}分类`} className="mb-5 flex max-w-full gap-1 overflow-x-auto rounded-xl border border-white/[0.08] bg-white/[0.025] p-1">
+  const { t } = useI18n()
+  return <div role="tablist" aria-label={t('{title}分类', '{title} sections', { title })} className="mb-6 flex max-w-full gap-5 overflow-x-auto border-b border-[var(--border-default)]">
     {tabs.map((tab, index) => <button
       key={tab.key}
       id={`${id}-tab-${tab.key}`}
@@ -24,8 +26,8 @@ export function PageTabs({
       aria-controls={`${id}-panel`}
       tabIndex={active === tab.key ? 0 : -1}
       className={cn(
-        'min-h-10 shrink-0 rounded-lg px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/70',
-        active === tab.key ? 'bg-white/[0.09] font-medium text-[var(--text-strong)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+        'min-h-10 shrink-0 border-b-2 px-1 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]',
+        active === tab.key ? 'border-[var(--accent)] font-medium text-[var(--accent)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
       )}
       onClick={() => onChange(tab.key)}
       onKeyDown={(event) => {

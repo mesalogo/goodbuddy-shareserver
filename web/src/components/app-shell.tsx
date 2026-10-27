@@ -1,159 +1,101 @@
-import {
-  Menu,
-  MoonStar,
-  Shield,
-  Sun,
-  X
-} from 'lucide-react'
+import * as Dialog from '@radix-ui/react-dialog'
+import { ChevronRight, Menu, MoonStar, PanelLeftClose, PanelLeftOpen, Shield, Sun, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import { NavLink } from 'react-router-dom'
-import { pages } from '../app-config'
+import { createPortal } from 'react-dom'
+import { NavLink, useLocation } from 'react-router-dom'
+import { pages, translatePage } from '../app-config'
+import { useI18n } from '../lib/i18n'
+import { LanguageSwitch } from './language-switch'
+import { useTheme } from '../lib/theme'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
-import { useAuth } from './auth-boundary'
+import { AccountMenu } from './account-menu'
 
-function BrandMark() {
-  return (
-    <div className="relative grid size-10 shrink-0 place-items-center rounded-xl border border-cyan-300/25 bg-cyan-300/10 text-cyan-300 shadow-[0_0_34px_-10px_rgba(34,211,238,.9)]">
-      <span className="absolute inset-1 rounded-lg border border-violet-400/20" />
-      <Shield aria-hidden="true" className="size-5" />
-    </div>
-  )
+const groups = ['工作空间', '组织与运营', '系统管理', '成员自助']
+const groupNames: Record<string, string> = { '工作空间': 'Workspace', '组织与运营': 'Organization & operations', '系统管理': 'System administration', '成员自助': 'Member self-service' }
+const navigation = pages.map(page => ({
+  ...page,
+  section: page.role === 'member' ? '成员自助'
+    : page.path === '/settings' || page.path === '/audit' ? '系统管理'
+      : page.group === '组织管理' || page.group === '运营与审计' ? '组织与运营' : '工作空间'
+}))
+
+function NavigationItem({ item, compact, onNavigate }: { item: typeof navigation[number]; compact: boolean; onNavigate: () => void }) {
+  const [tooltip, setTooltip] = useState<{ top: number; left: number } | null>(null)
+  const Icon = item.icon
+  const showTooltip = (element: HTMLElement) => {
+    if (!compact) return
+    const rect = element.getBoundingClientRect()
+    setTooltip({ top: rect.top + rect.height / 2, left: rect.right + 12 })
+  }
+  return <>
+    <NavLink to={item.path} end={item.path === '/'} onClick={() => { setTooltip(null); onNavigate() }}
+      onMouseEnter={event => showTooltip(event.currentTarget)} onMouseLeave={() => setTooltip(null)}
+      onFocus={event => showTooltip(event.currentTarget)} onBlur={() => setTooltip(null)} onKeyDown={event => { if (event.key === 'Escape') setTooltip(null) }}
+      className={({ isActive }) => cn('relative flex min-h-9 items-center gap-3 rounded-md px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]', compact && 'justify-center', isActive ? 'bg-[var(--accent-subtle)] font-medium text-[var(--accent)]' : 'text-[var(--text-primary)] hover:bg-[var(--control)]')}>
+      <Icon aria-hidden="true" className="size-4 shrink-0" /><span className={compact ? 'sr-only' : 'truncate'}>{item.title}</span>
+    </NavLink>
+    {compact && tooltip && createPortal(<span aria-hidden="true" style={tooltip} className="pointer-events-none fixed z-50 -translate-y-1/2 rounded-md border border-[var(--border-default)] bg-[var(--panel)] px-3 py-2 text-xs text-[var(--text-primary)] shadow-[var(--shadow-dialog)]">{item.title}</span>, document.body)}
+  </>
 }
 
-export function AppShell({
-  children
-}: {
-  children: ReactNode
-}) {
+export function AppShell({ children }: { children: ReactNode }) {
+  const { t } = useI18n()
+  const localizedNavigation = navigation.map(item => ({ ...translatePage(item), section: item.section }))
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [dark, setDark] = useState(true)
-  const auth = useAuth()
-  const [logoutError, setLogoutError] = useState('')
-  const [loggingOut, setLoggingOut] = useState(false)
-  const groupOrder = ['工作台', 'GoodBuddy 服务', '共享资源', '组织管理', '运营与审计', '系统', '成员自助']
-  const navigation = pages.map((page) => ({
-    ...page,
-    group: page.group ?? (page.role === 'member' ? '成员自助' : page.path === '/' ? '工作台' : '组织管理')
-  })).sort((left, right) => groupOrder.indexOf(left.group) - groupOrder.indexOf(right.group))
+  const [collapsed, setCollapsed] = useState(false)
+  const { dark, toggleTheme } = useTheme()
+  const location = useLocation()
+  const current = localizedNavigation.find(page => page.path === location.pathname || (page.path !== '/' && location.pathname.startsWith(`${page.path}/`)))
 
   useEffect(() => {
-    document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-  }, [dark])
+    if (!window.matchMedia) return
+    const query = window.matchMedia('(min-width: 1024px)')
+    const close = () => { if (query.matches) setMobileOpen(false) }
+    query.addEventListener('change', close)
+    return () => query.removeEventListener('change', close)
+  }, [])
 
-  const nav = (
-    <>
-      <div className="flex h-19 items-center gap-3 border-b border-white/[0.07] px-5">
-        <BrandMark />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold tracking-wide text-white">
-            ShareServer
-          </p>
-          <p className="truncate text-[11px] uppercase tracking-[0.16em] text-cyan-300/70">
-            GoodBuddy 组织服务
-          </p>
-        </div>
-      </div>
-      <nav aria-label="管理控制台" className="flex-1 overflow-y-auto px-3 py-4">
-        <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
-          控制台
-        </p>
-        <div className="space-y-1">
-          {navigation.map((item, index) => {
-             const Icon = item.icon
-             return (
-               <div key={item.path}>
-               {index > 0 && item.group !== navigation[index - 1].group ? <p className="px-3 pb-2 pt-4 text-[11px] font-medium text-slate-500">{item.group}</p> : null}
-               <NavLink
-                to={item.path}
-                end={item.path === '/'}
-                onClick={() => setMobileOpen(false)}
-                className={({ isActive }) =>
-                  cn(
-                    'group relative flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/70',
-                    isActive
-                      ? 'bg-cyan-300/[0.09] font-medium text-cyan-100'
-                      : 'text-slate-400 hover:bg-white/[0.045] hover:text-slate-100'
-                  )
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    {isActive ? (
-                      <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(34,211,238,.9)]" />
-                    ) : null}
-                    <Icon aria-hidden="true" className="size-[18px]" />
-                    <span>{item.title}</span>
-                  </>
-                )}
-               </NavLink>
-               </div>
-            )
-          })}
-        </div>
-      </nav>
-    </>
-  )
-
-  return (
-    <div className="min-h-screen bg-[var(--canvas)] text-[var(--text-primary)]">
-      <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
-        <div className="absolute -left-60 -top-72 size-[620px] rounded-full bg-cyan-500/[0.055] blur-3xl" />
-        <div className="absolute -right-48 top-24 size-[520px] rounded-full bg-violet-500/[0.06] blur-3xl" />
-        <div className="grid-overlay absolute inset-0 opacity-40" />
-      </div>
-      <aside className="app-sidebar fixed inset-y-0 left-0 z-30 hidden w-[258px] flex-col border-r border-white/[0.075] bg-[#07111f]/95 backdrop-blur-xl lg:flex">
-        {nav}
-      </aside>
-      {mobileOpen ? (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <button
-            aria-label="关闭导航"
-            className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm"
-            onClick={() => setMobileOpen(false)}
-          />
-          <aside className="app-sidebar relative flex h-full w-[min(300px,86vw)] flex-col border-r border-white/10 bg-[#07111f] shadow-2xl">
-            <Button
-              aria-label="关闭导航"
-              className="absolute right-3 top-3 z-10"
-              size="icon"
-              variant="ghost"
-              onClick={() => setMobileOpen(false)}
-            >
-              <X className="size-5" />
-            </Button>
-            {nav}
-          </aside>
-        </div>
-      ) : null}
-      <div className="relative lg:pl-[258px]">
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-white/[0.07] bg-[var(--header)] px-4 backdrop-blur-xl sm:px-6">
-          <Button
-            aria-label="打开导航"
-            className="lg:hidden"
-            size="icon"
-            variant="ghost"
-            onClick={() => setMobileOpen(true)}
-          >
-            <Menu className="size-5" />
-          </Button>
-          <div className="ml-auto flex items-center gap-1">
-            {logoutError && <p role="alert" className="text-sm">{logoutError}</p>}
-            {auth && <><span className="max-w-32 truncate text-sm">{auth.username}</span><Button variant="ghost" disabled={loggingOut} onClick={() => { setLoggingOut(true); setLogoutError(''); void auth.logout().catch(() => setLogoutError('退出失败，请重试。')).finally(() => setLoggingOut(false)) }}>退出登录</Button></>}
-             <Button
-              aria-label={dark ? '切换到浅色主题' : '切换到深色主题'}
-              size="icon"
-              variant="ghost"
-              onClick={() => setDark((value) => !value)}
-            >
-              {dark ? <Sun className="size-4" /> : <MoonStar className="size-4" />}
-            </Button>
-          </div>
-        </header>
-        <main className="min-h-[calc(100vh-4rem)] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-          <div className="mx-auto max-w-[1440px]">{children}</div>
-        </main>
-      </div>
+  const sidebar = (compact: boolean) => <>
+    <div className={cn('flex h-16 shrink-0 items-center gap-3 border-b border-[var(--border-default)] px-4', compact && 'justify-center px-2')}>
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[var(--accent-solid)] text-[var(--text-on-accent)]"><Shield aria-hidden="true" className="size-5" /></span>
+      {!compact && <div className="min-w-0"><p className="truncate text-sm font-semibold text-[var(--text-strong)]">ShareServer</p><p className="text-xs text-[var(--text-muted)]">{t('GoodBuddy 组织服务', 'GoodBuddy organization services')}</p></div>}
     </div>
-  )
+    <nav aria-label={t('管理控制台', 'Administration console')} className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+      {groups.map((group, index) => <div key={group} className={cn(index > 0 && 'mt-4 border-t border-[var(--border-default)] pt-4')}>
+        <p className={cn('mb-2 px-2 text-xs font-medium text-[var(--text-muted)]', compact && 'sr-only')}>{t(group, groupNames[group])}</p>
+        <div className="space-y-1">{localizedNavigation.filter(item => item.section === group).map(item => <NavigationItem key={item.path} item={item} compact={compact} onNavigate={() => setMobileOpen(false)} />)}</div>
+      </div>)}
+    </nav>
+    <div className="shrink-0 border-t border-[var(--border-default)] p-3">
+      <p className={cn('px-2 text-xs text-[var(--text-muted)]', compact && 'text-center')}>{t('技术预览', 'Technical preview')}</p>
+    </div>
+  </>
+
+  return <div className="min-h-screen bg-[var(--canvas)] text-[var(--text-primary)]">
+    <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-[var(--panel)] focus:p-3">{t('跳转到主要内容', 'Skip to main content')}</a>
+    <aside aria-label={t('桌面侧栏', 'Desktop sidebar')} className={cn('fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-[var(--border-default)] bg-[var(--sidebar)] lg:flex', collapsed ? 'w-16' : 'w-60')}>{sidebar(collapsed)}</aside>
+    <div className={collapsed ? 'lg:pl-16' : 'lg:pl-60'}>
+      <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-[var(--border-default)] bg-[var(--header)] px-4 sm:px-6">
+        <Dialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
+          <Dialog.Trigger asChild><Button aria-label={t('打开导航', 'Open navigation')} className="lg:hidden" size="icon" variant="ghost"><Menu aria-hidden="true" className="size-4" /></Button></Dialog.Trigger>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 z-40 bg-[var(--overlay)]" />
+            <Dialog.Content aria-describedby={undefined} className="fixed inset-y-0 left-0 z-50 flex w-[min(320px,90vw)] flex-col border-r border-[var(--border-default)] bg-[var(--sidebar)] text-[var(--text-primary)] shadow-[var(--shadow-dialog)]">
+              <Dialog.Title className="sr-only">{t('管理控制台导航', 'Administration console navigation')}</Dialog.Title>
+              <Dialog.Close asChild><Button aria-label={t('关闭导航', 'Close navigation')} size="icon" variant="ghost" className="absolute right-2 top-3"><X aria-hidden="true" className="size-4" /></Button></Dialog.Close>
+              {sidebar(false)}
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+        <Button aria-label={collapsed ? t('展开侧栏', 'Expand sidebar') : t('收起侧栏', 'Collapse sidebar')} title={collapsed ? t('展开侧栏', 'Expand sidebar') : t('收起侧栏', 'Collapse sidebar')} aria-expanded={!collapsed} className="hidden lg:inline-flex" size="icon" variant="ghost" onClick={() => setCollapsed(value => !value)}>
+          {collapsed ? <PanelLeftOpen aria-hidden="true" className="size-4" /> : <PanelLeftClose aria-hidden="true" className="size-4" />}
+        </Button>
+        <nav aria-label={t('面包屑', 'Breadcrumb')} className="min-w-0 text-sm"><ol className="flex items-center gap-2"><li className="hidden text-[var(--text-muted)] sm:block">{current ? t(current.section, groupNames[current.section]) : t('控制台', 'Console')}</li><li aria-hidden="true" className="hidden sm:block"><ChevronRight className="size-3 text-[var(--text-muted)]" /></li><li aria-current="page" className="truncate font-medium text-[var(--text-strong)]">{current?.title ?? 'ShareServer'}</li></ol></nav>
+        <div className="ml-auto flex shrink-0 items-center gap-1"><LanguageSwitch />
+        <Button aria-label={dark ? t('切换到浅色主题', 'Switch to light theme') : t('切换到深色主题', 'Switch to dark theme')} title={dark ? t('切换到浅色主题', 'Switch to light theme') : t('切换到深色主题', 'Switch to dark theme')} size="icon" variant="ghost" onClick={toggleTheme}>{dark ? <Sun aria-hidden="true" className="size-4" /> : <MoonStar aria-hidden="true" className="size-4" />}</Button><AccountMenu /></div>
+      </header>
+      <main id="main-content" tabIndex={-1} className="min-h-[calc(100vh-3.5rem)] px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8"><div className="mx-auto max-w-[1440px]">{children}</div></main>
+    </div>
+  </div>
 }

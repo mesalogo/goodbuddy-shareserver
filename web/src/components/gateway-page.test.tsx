@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GatewayAccessKey, GatewaySnapshot, GatewayUpstream } from '../../../shared/gateway'
 import { GatewayPage } from './gateway-page'
+import { formatDate, setLanguage } from '../lib/i18n'
 
 const upstream: GatewayUpstream = { id: 'up-1', name: 'Local provider', baseUrl: 'https://provider.example/v1', protocol: 'openai-chat-completions', authentication: 'api-key', enabled: true, credentialConfigured: true }
 const model = { id: 'model-stable-id', alias: 'local-chat', remoteModel: 'remote-chat', upstreamId: upstream.id, enabled: true }
@@ -13,6 +14,7 @@ describe('real gateway UI', () => {
   let keys: GatewayAccessKey[]
   let fetchMock: ReturnType<typeof vi.fn>
   beforeEach(() => {
+    setLanguage('zh-CN')
     snapshot = { upstreams: [], models: [], audits: [], gatewayBaseUrl: null }
     keys = []
     fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
@@ -46,7 +48,111 @@ describe('real gateway UI', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
   })
-  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); setLanguage('zh-CN') })
+
+  it('switches loaded content, dates and open forms live without translating model data', async () => {
+    snapshot.upstreams = [upstream]
+    snapshot.models = [{ ...model, displayName: '用户模型名称' }]
+    snapshot.audits = [{ id: 'audit-1', time: '2026-10-01T00:00:00Z', model: model.alias, upstreamId: upstream.id, accessKeyId: null, stream: true, status: 'cancelled', httpStatus: 499, durationMs: 128, inputTokens: null, outputTokens: 0, errorCode: null }]
+    keys = [{ id: 'key-1', name: '我的客户端', modelIds: [model.id], createdAt: '2026-10-01T00:00:00Z', revokedAt: '2026-10-02T00:00:00Z' }]
+    render(<GatewayPage />)
+    await screen.findByRole('heading', { name: '我的客户端' })
+    fireEvent.click(screen.getByRole('button', { name: `编辑映射 ${model.alias}` }))
+    act(() => setLanguage('en'))
+    expect(screen.getByRole('dialog', { name: 'Edit model mapping' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Model alias')).toHaveValue(model.alias)
+    expect(screen.getByLabelText('Display name (optional)')).toHaveValue('用户模型名称')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('heading', { name: 'Model gateway' })).toBeInTheDocument()
+    expect(screen.getByRole('table')).toHaveTextContent('Cancelled / 499')
+    expect(screen.getByRole('table')).toHaveTextContent('Streaming')
+    expect(screen.getByRole('table')).toHaveTextContent('Unknown')
+    expect(screen.getByRole('table')).toHaveTextContent(formatDate(snapshot.audits[0].time))
+    expect(screen.getByRole('region', { name: 'Access keys' })).toHaveTextContent(`Revoked ${formatDate(keys[0].revokedAt!)}`)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    act(() => setLanguage('zh-CN'))
+    expect(screen.getByRole('table')).toHaveTextContent('已取消 / 499')
+    expect(screen.getByRole('table')).toHaveTextContent(formatDate(snapshot.audits[0].time))
+  })
+
+  it('relocalizes existing safe errors and successful outcomes while preserving secrets protection', async () => {
+    snapshot.upstreams = [upstream]
+    render(<GatewayPage />)
+    await screen.findByText(/暂无访问密钥/)
+    fireEvent.click(screen.getByRole('button', { name: `编辑上游 ${upstream.name}` }))
+    fireEvent.change(screen.getByLabelText('上游 API Key'), { target: { value: 'secret-should-not-echo' } })
+    fetchMock.mockResolvedValueOnce(failure())
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
+    await screen.findByRole('alert')
+    act(() => setLanguage('en'))
+    expect(screen.getByRole('alert')).toHaveTextContent('Save configuration failed: HTTP 503')
+    expect(screen.getByRole('alert')).toHaveTextContent('The server cannot encrypt or read credentials.')
+    expect(screen.getByLabelText('Upstream API Key')).toHaveValue('')
+    expect(document.body).not.toHaveTextContent('secret-should-not-echo')
+    fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }))
+    await screen.findByText('Save configuration completed. Configuration saved to the server.')
+    act(() => setLanguage('zh-CN'))
+    expect(screen.getByText('保存配置完成。配置已保存到服务器。')).toBeInTheDocument()
+  })
+
+  it('runs English key creation and confirmation with live translation and one-time secrets', async () => {
+    setLanguage('en')
+    snapshot.upstreams = [upstream]
+    snapshot.models = [model]
+    render(<GatewayPage />)
+    await screen.findByText('No access keys yet. Configure models before creating a key.')
+    fireEvent.click(screen.getByRole('button', { name: 'Create access key' }))
+    fireEvent.change(screen.getByLabelText('Key name'), { target: { value: '我的客户端' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: model.alias }))
+    fetchMock.mockResolvedValueOnce(failure())
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm creation' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Create access key failed')
+    act(() => setLanguage('zh-CN'))
+    expect(screen.getByRole('alert')).toHaveTextContent('创建访问密钥失败')
+    expect(screen.getByLabelText('密钥名称')).toHaveValue('我的客户端')
+    act(() => setLanguage('en'))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm creation' }))
+    expect(await screen.findByLabelText('New access key')).toHaveValue('ss_only-once-secret')
+    act(() => setLanguage('zh-CN'))
+    expect(screen.getByLabelText('新访问密钥')).toHaveValue('ss_only-once-secret')
+    fireEvent.click(screen.getByRole('button', { name: '已保存，关闭密钥' }))
+    act(() => setLanguage('en'))
+    expect(screen.queryByDisplayValue('ss_only-once-secret')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke key 我的客户端' }))
+    expect(screen.getByRole('dialog')).toHaveTextContent('After revoking “我的客户端”')
+    expect(screen.getByRole('dialog')).toHaveTextContent('This action cannot be undone.')
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm revocation' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Revoke key 我的客户端' })).not.toBeInTheDocument()
+  })
+
+  it('switches request progress, cancellation and empty results without changing prompts or responses', async () => {
+    snapshot.upstreams = [upstream]
+    snapshot.models = [model]
+    render(<GatewayPage />)
+    await screen.findByText(/暂无访问密钥/)
+    fireEvent.change(screen.getByLabelText('测试提示词'), { target: { value: '用户提示词' } })
+    fetchMock.mockImplementationOnce(() => new Promise(() => {}))
+    fireEvent.click(screen.getByRole('button', { name: '发送真实请求' }))
+    act(() => setLanguage('en'))
+    expect(screen.getByText('Requesting upstream…')).toBeInTheDocument()
+    expect(screen.getByLabelText('Test prompt')).toHaveValue('用户提示词')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel test' }))
+    expect(screen.getByText(/Test cancelled/)).toBeInTheDocument()
+    act(() => setLanguage('zh-CN'))
+    expect(screen.getByText(/已取消测试/)).toBeInTheDocument()
+    fetchMock.mockResolvedValueOnce(response({ choices: [] }))
+    fireEvent.click(screen.getByRole('button', { name: '发送真实请求' }))
+    await screen.findByText('上游未返回文本内容。')
+    act(() => setLanguage('en'))
+    expect(screen.getByText('The upstream returned no text content.')).toBeInTheDocument()
+    expect(screen.getByText('Request completed.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send live request' })).toBeEnabled())
+    fetchMock.mockResolvedValueOnce(response({ choices: [{ message: { content: '上游未返回文本内容。' } }] }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send live request' }))
+    await screen.findByText('上游未返回文本内容。')
+    expect(screen.queryByText('The upstream returned no text content.')).not.toBeInTheDocument()
+  })
 
   it('loads empty real data and asks for a configured client URL without inventing an origin', async () => {
     render(<GatewayPage />)

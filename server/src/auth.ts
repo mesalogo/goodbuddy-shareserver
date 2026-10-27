@@ -100,6 +100,29 @@ export class AuthService {
       if (!c.req.header('content-type')?.startsWith('application/json')) return c.json({ message: '请提交 JSON 表单。' }, 415)
       await next()
     })
+    app.post('/password', async c => {
+      const operation = this.queue.then(async () => {
+        if (!this.session(c)) return c.json({ code: 'LOGIN_REQUIRED', message: '请先登录管理员账号。' }, 401)
+        const body = await c.req.json().catch(() => null) as { currentPassword?: unknown; newPassword?: unknown } | null
+        if (!body || typeof body.currentPassword !== 'string' || body.currentPassword.length > 1024 || typeof body.newPassword !== 'string' || body.newPassword.length < 12 || body.newPassword.length > 1024) return c.json({ message: '新密码需为 12–1024 位。' }, 400)
+        const admin = await this.admin()
+        const hash = await scrypt(body.currentPassword, admin?.salt ?? '00000000000000000000000000000000', 64) as Buffer
+        if (!admin || !timingSafeEqual(hash, Buffer.from(admin.hash, 'hex'))) return c.json({ message: '当前密码错误。' }, 400)
+        if (body.currentPassword === body.newPassword) return c.json({ message: '新密码不能与当前密码相同。' }, 400)
+        const salt = randomBytes(16).toString('hex')
+        const updated = { username: admin.username, salt, hash: (await scrypt(body.newPassword, salt, 64) as Buffer).toString('hex') }
+        if (databaseEnabled()) await writeState('admin', updated)
+        else {
+          const temporary = resolve(this.directory, 'admin.json.tmp')
+          await writeFile(temporary, JSON.stringify(updated), { mode: 0o600 })
+          await rename(temporary, resolve(this.directory, 'admin.json'))
+        }
+        this.sessions.clear()
+        return this.login(c, admin.username)
+      })
+      this.queue = operation.catch(() => undefined)
+      return operation
+    })
     app.post('/:action', async c => {
       const action = c.req.param('action')
       if (!['setup', 'login'].includes(action)) return c.json({ message: '接口不存在。' }, 404)
@@ -107,13 +130,13 @@ export class AuthService {
       if (!body || typeof body.username !== 'string' || !/^[a-zA-Z0-9_.@-]{3,64}$/.test(body.username) || typeof body.password !== 'string' || body.password.length < 12 || body.password.length > 1024) return c.json({ message: '账号需为 3–64 位字母、数字或 _.@-；密码需为 12–1024 位。' }, 400)
       const username = body.username
       const password = body.password
+      const operation = this.queue.then(async () => {
       if (action === 'login') {
         const admin = await this.admin()
         const hash = await scrypt(password, admin?.salt ?? '00000000000000000000000000000000', 64) as Buffer
         if (!admin || !timingSafeEqual(hash, Buffer.from(admin.hash, 'hex')) || username !== admin.username) return c.json({ message: '账号或密码错误。' }, 401)
         return this.login(c, username)
       }
-      const operation = this.queue.then(async () => {
         if (await this.admin()) return c.json({ message: '管理员已创建，请登录。' }, 409)
         const token = await readFile(resolve(this.directory, 'admin-setup-token'), 'utf8')
         if (typeof body.setupToken !== 'string' || !timingSafeEqual(Buffer.from(digest(body.setupToken.trim()), 'hex'), Buffer.from(digest(token.trim()), 'hex'))) return c.json({ message: '初始化码无效。' }, 403)

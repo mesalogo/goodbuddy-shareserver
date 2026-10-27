@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { pages } from './app-config'
+import { getPages } from './app-config'
+import { useI18n } from './lib/i18n'
 import { AppShell } from './components/app-shell'
 import { SharingCenter } from './components/sharing-center'
 import { OverviewPage } from './components/overview-page'
@@ -15,12 +16,13 @@ export default function App() {
 }
 
 function ApplicationRoutes() {
+  const { t } = useI18n()
   const location = useLocation()
   if (location.pathname === '/office/editor') return <DocumentsPage embedded />
   return (
       <AppShell>
         <Routes>
-          {pages.map((page) => (
+          {getPages().map((page) => (
             <Route
               key={page.path}
               path={page.path}
@@ -32,7 +34,7 @@ function ApplicationRoutes() {
                     : Object.hasOwn(consoleModules, page.path.slice(1)) ? <ConsolePage key={page.path} module={page.path.slice(1) as ConsoleModule} />
                     : page.path === '/audit' ? <ConsolePage module="audit" />
                       : page.path === '/devices' ? <DevicesPage />
-                        : <UnavailablePage title={page.title} description={page.description} boundary={page.boundary ?? '该模块的身份、权限和持久化接口尚未接入，因此当前不显示示例数据，也不提供不会生效的操作。'} next={page.next} tabs={page.tabs?.map(({ label, dataKey }) => ({ label, key: dataKey }))} />
+                        : <UnavailablePage title={page.title} description={page.description} boundary={page.boundary ?? t('该模块的身份、权限和持久化接口尚未接入，因此当前不显示示例数据，也不提供不会生效的操作。', 'Identity, permission, and persistence APIs for this module are not connected yet. Sample data and nonfunctional actions are therefore unavailable.')} next={page.next} tabs={page.tabs?.map(({ label, dataKey }) => ({ label, key: dataKey }))} />
               }
             />
           ))}

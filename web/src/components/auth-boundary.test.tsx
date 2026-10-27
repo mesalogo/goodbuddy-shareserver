@@ -2,12 +2,26 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest'
 import { AuthBoundary, useAuth } from './auth-boundary'
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear() })
 
 function Content() {
   const auth = useAuth()
   return <><h1>受保护的控制台</h1><button onClick={() => void auth?.logout()}>退出登录</button></>
 }
+
+it('defaults to light and persists the theme on the authentication screen', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ enabled: true, initialized: true, authenticated: false }) }))
+  const view = render(<AuthBoundary><Content /></AuthBoundary>)
+  await screen.findByRole('heading', { name: '管理员登录' })
+  expect(document.documentElement.dataset.theme).toBe('light')
+  fireEvent.click(screen.getByRole('button', { name: '切换到深色主题' }))
+  expect(document.documentElement.dataset.theme).toBe('dark')
+  expect(localStorage.getItem('shareserver-theme')).toBe('dark')
+  view.unmount()
+  render(<AuthBoundary><Content /></AuthBoundary>)
+  await screen.findByRole('heading', { name: '管理员登录' })
+  expect(document.documentElement.dataset.theme).toBe('dark')
+})
 
 it('sets up an administrator, clears secrets, logs out and handles session expiry', async () => {
   const fetcher = vi.fn(async (url: string) => ({ ok: true, json: async () => url.endsWith('/session') ? { enabled: true, initialized: false, authenticated: false, username: null } : { authenticated: true, username: 'admin' } }))

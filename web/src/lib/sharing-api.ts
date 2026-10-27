@@ -1,4 +1,5 @@
 import { adminFetch } from './admin-fetch'
+import { ServiceError } from './localized-sharing'
 
 export async function sharingRequest<T>(
   path: string,
@@ -12,8 +13,7 @@ export async function sharingRequest<T>(
   const response = await adminFetch(`/api/v1/sharing${path}`, init)
   const payload = await response.json().catch(() => null) as { code?: string; message?: string; requestId?: string } | null
   if (!response.ok) {
-    const details = [payload?.code, payload?.requestId ? `请求 ID：${payload.requestId}` : ''].filter(Boolean).join(' · ')
-    throw new Error(`${payload?.message ?? `HTTP ${response.status}`}${details ? `（${details}）` : ''}`)
+    throw new ServiceError(payload?.message ?? '请求失败', response.status, payload?.code, payload?.requestId)
   }
   return payload as T
 }

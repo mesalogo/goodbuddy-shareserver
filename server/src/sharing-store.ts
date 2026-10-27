@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import type { Device, DeviceInput, Publication, PublicationInput } from '../../shared/sharing.js'
+import type { Device, DeviceDetails, DeviceInput, DeviceStatus, Publication, PublicationInput, SharingEvent, SharingHistory } from '../../shared/sharing.js'
 import { databaseEnabled, readState, writeState } from './database.js'
 
 export class SharingError extends Error {
@@ -73,9 +73,14 @@ interface State {
   version: 1
   devices: Device[]
   publications: Publication[]
+  events?: SharingEvent[]
   registration?: { mode: 'open' | 'approval'; credentials: Record<string, { hash: string; status: DeviceStatus }> }
 }
-export type DeviceStatus = 'approved' | 'pending' | 'rejected' | 'disabled'
+export type { DeviceStatus } from '../../shared/sharing.js'
+export const sharingEventLimit = 1000
+function audit(state: State, event: Omit<SharingEvent, 'id' | 'at'>, at = new Date().toISOString()) {
+  state.events = [...(state.events ?? []), { ...event, id: randomUUID(), at }].slice(-sharingEventLimit)
+}
 const credentialHash = (token: string) => createHash('sha256').update(token).digest('hex')
 
 function timestamp(value: unknown): string {
@@ -86,7 +91,8 @@ function timestamp(value: unknown): string {
 
 function parseState(value: unknown): State {
   const hasRegistration = Boolean(value && typeof value === 'object' && Object.hasOwn(value, 'registration'))
-  const state = object(value, ['version', 'devices', 'publications', ...(hasRegistration ? ['registration'] : [])])
+  const hasEvents = Boolean(value && typeof value === 'object' && Object.hasOwn(value, 'events'))
+  const state = object(value, ['version', 'devices', 'publications', ...(hasRegistration ? ['registration'] : []), ...(hasEvents ? ['events'] : [])])
   if (state.version !== 1 || !Array.isArray(state.devices) || !Array.isArray(state.publications)) {
     throw new Error('Invalid metadata file.')
   }
@@ -113,7 +119,19 @@ function parseState(value: unknown): State {
     }
     registration = r as NonNullable<State['registration']>
   }
-  return { version: 1, devices, publications, ...(registration ? { registration } : {}) }
+  let events: SharingEvent[] = []
+  if (hasEvents) {
+    if (!Array.isArray(state.events) || state.events.length > sharingEventLimit) throw new Error('Invalid audit history.')
+    events = state.events.map(value => {
+      const event = object(value, ['id', 'at', 'kind', 'deviceId', 'publicationId', 'registrationStatus'])
+      validateId(event.id); timestamp(event.at)
+      if (!ids.has(String(event.deviceId)) || !['registration', 'approved', 'rejected', 'disabled', 'publication-revoked'].includes(String(event.kind)) ||
+        !['unregistered', 'approved', 'pending', 'rejected', 'disabled'].includes(String(event.registrationStatus)) ||
+        (event.kind === 'publication-revoked' ? !publications.some(p => p.id === event.publicationId && p.deviceId === event.deviceId) : event.publicationId !== null)) throw new Error('Invalid audit event.')
+      return event as unknown as SharingEvent
+    })
+  }
+  return { version: 1, devices, publications, events, ...(registration ? { registration } : {}) }
 }
 
 // One store per data directory in one process. The queue covers reads and mutations.
@@ -195,6 +213,19 @@ export class SharingStore {
     return this.run(async () => structuredClone((await this.load()).devices))
   }
 
+  history(deviceId?: string): Promise<SharingHistory> {
+    return this.run(async () => ({ events: structuredClone((await this.load()).events ?? []).filter(event => !deviceId || event.deviceId === deviceId).reverse(), retentionLimit: sharingEventLimit }))
+  }
+
+  deviceDetails(id: string): Promise<DeviceDetails> {
+    return this.run(async () => {
+      const state = await this.load()
+      const device = state.devices.find(item => item.id === id)
+      if (!device) throw new SharingError(404, 'DEVICE_NOT_FOUND', 'Device does not exist.')
+      return structuredClone({ device: { ...device, registrationStatus: state.registration?.credentials[id]?.status ?? 'unregistered' }, publications: state.publications.filter(item => item.deviceId === id), history: { events: (state.events ?? []).filter(event => event.deviceId === id).slice().reverse(), retentionLimit: sharingEventLimit } })
+    })
+  }
+
   publications(deviceId?: string): Promise<Publication[]> {
     return this.run(async () => structuredClone((await this.load()).publications.filter(
       (item) => deviceId === undefined || item.deviceId === deviceId
@@ -225,7 +256,9 @@ export class SharingStore {
       const state = structuredClone(await this.load())
       const credential = state.registration && Object.hasOwn(state.registration.credentials, id) ? state.registration.credentials[id] : undefined
       if (!credential) throw new SharingError(404, 'DEVICE_NOT_FOUND', '此设备尚未申请接入。')
+      if (credential.status === status) return { registrationStatus: credential.status }
       credential.status = status as DeviceStatus
+      audit(state, { kind: status as 'approved' | 'rejected' | 'disabled', deviceId: id, publicationId: null, registrationStatus: credential.status })
       await this.save(state)
       return { registrationStatus: credential.status }
     })
@@ -245,6 +278,7 @@ export class SharingStore {
       if (index < 0) state.devices.push(device)
       else state.devices[index] = device
       state.registration.credentials[input.id] = credential
+      audit(state, { kind: 'registration', deviceId: input.id, publicationId: null, registrationStatus: credential.status }, now)
       await this.save(state)
       return { ...device, registrationStatus: credential.status }
     })
@@ -269,11 +303,16 @@ export class SharingStore {
       const index = state.devices.findIndex((item) => item.id === input.id)
       const existing = state.devices[index]
       if (existing && existing.name === input.name && existing.platform === input.platform &&
-        existing.appVersion === input.appVersion) return existing
+        existing.appVersion === input.appVersion) {
+        audit(state, { kind: 'registration', deviceId: input.id, publicationId: null, registrationStatus: state.registration?.credentials[input.id]?.status ?? 'unregistered' })
+        await this.save(state)
+        return structuredClone(existing)
+      }
       const now = new Date().toISOString()
       const device = { ...input, registeredAt: existing?.registeredAt ?? now, updatedAt: now }
       if (index < 0) state.devices.push(device)
       else state.devices[index] = device
+      audit(state, { kind: 'registration', deviceId: input.id, publicationId: null, registrationStatus: state.registration?.credentials[input.id]?.status ?? 'unregistered' }, now)
       await this.save(state)
       return structuredClone(device)
     })
@@ -313,6 +352,7 @@ export class SharingStore {
       if (publication.status === 'revoked') return publication
       publication.status = 'revoked'
       publication.updatedAt = new Date().toISOString()
+      audit(state, { kind: 'publication-revoked', deviceId: publication.deviceId, publicationId: publication.id, registrationStatus: state.registration?.credentials[publication.deviceId]?.status ?? 'unregistered' }, publication.updatedAt)
       await this.save(state)
       return structuredClone(publication)
     })

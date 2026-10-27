@@ -1,32 +1,60 @@
 @import "tailwindcss";
 
-:root,
 :root[data-theme="dark"] {
   color-scheme: dark;
   --canvas: #07111f;
-  --header: rgba(7, 17, 31, 0.78);
-  --sidebar: #07111f;
-  --panel: rgba(12, 25, 43, 0.78);
+  --header: #0c1726;
+  --sidebar: #0c1726;
+  --panel: #101e30;
   --dialog: #0a1525;
   --control: #0d1b2e;
   --border-default: #34465d;
   --text-strong: #f1f6fd;
   --text-primary: #cdd9e8;
-  --text-muted: #718198;
+  --text-muted: #9aabc0;
+  --border-control: #60738b;
+  --accent: #8cb7ff;
+  --accent-solid: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-subtle: #172f51;
+  --text-on-accent: #ffffff;
+  --success: #72d5af;
+  --success-subtle: #12382e;
+  --danger: #ffa0a8;
+  --danger-subtle: #42232e;
+  --warning: #f3c578;
+  --warning-subtle: #3c3020;
+  --overlay: rgba(3, 9, 18, 0.65);
+  --shadow-dialog: 0 24px 64px rgba(0, 0, 0, 0.35);
 }
 
+:root,
 :root[data-theme="light"] {
   color-scheme: light;
-  --canvas: #edf3fa;
-  --header: rgba(247, 250, 253, 0.82);
-  --sidebar: #0a1627;
-  --panel: rgba(255, 255, 255, 0.86);
+  --canvas: #ffffff;
+  --header: #ffffff;
+  --sidebar: #f3f6fa;
+  --panel: #ffffff;
   --dialog: #ffffff;
-  --control: #f7fafc;
-  --border-default: #a7b7ca;
+  --control: #f5f7fa;
+  --border-default: #dce3ec;
+  --border-control: #8291a5;
   --text-strong: #0e1a2b;
   --text-primary: #2b3b50;
   --text-muted: #52657d;
+  --accent: #245bc1;
+  --accent-solid: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-subtle: #eaf1ff;
+  --text-on-accent: #ffffff;
+  --success: #187353;
+  --success-subtle: #e9f7ef;
+  --danger: #bc3046;
+  --danger-subtle: #fff0f1;
+  --warning: #8a5a13;
+  --warning-subtle: #fff6e6;
+  --overlay: rgba(15, 23, 42, 0.35);
+  --shadow-dialog: 0 24px 64px rgba(15, 23, 42, 0.16);
 }
 
 * {
@@ -60,8 +88,13 @@ button {
 }
 
 ::selection {
-  background: rgba(34, 211, 238, 0.25);
-  color: #fff;
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 ::-webkit-scrollbar {

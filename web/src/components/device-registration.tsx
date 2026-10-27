@@ -1,22 +1,25 @@
 import { useEffect, useState } from 'react'
-import type { Device } from '../../../shared/sharing'
+import type { Device, RegistrationStatus } from '../../../shared/sharing'
 import { sharingRequest } from '../lib/sharing-api'
 import { Button } from './ui/button'
+import { useI18n } from '../lib/i18n'
+import { localizedError, toError } from '../lib/localized-sharing'
 
-type Status = 'approved' | 'pending' | 'rejected' | 'disabled' | 'unregistered'
+type Status = RegistrationStatus
 type Snapshot = { mode: 'open' | 'approval'; devices: (Device & { registrationStatus: Status })[] }
-const labels: Record<Status, string> = { approved: '已接纳', pending: '待审批', rejected: '已拒绝', disabled: '已停用', unregistered: '等待客户端注册凭据' }
 
-export function DeviceRegistration() {
+export function DeviceRegistration({ deviceId, onChanged }: { deviceId?: string; onChanged?: () => void } = {}) {
+  const { t } = useI18n()
+  const labels: Record<Status, string> = { approved: t('已接纳', 'Approved'), pending: t('待审批', 'Pending approval'), rejected: t('已拒绝', 'Rejected'), disabled: t('已停用', 'Disabled'), unregistered: t('等待客户端注册凭据', 'Waiting for client registration credentials') }
   const [snapshot, setSnapshot] = useState<Snapshot>()
-  const [error, setError] = useState('')
+  const [error, setError] = useState<string | Error>('')
   const [busy, setBusy] = useState(false)
   const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     const controller = new AbortController()
     sharingRequest<Snapshot>('/registration', controller.signal).then(value => {
       if (!controller.signal.aborted) { setSnapshot(value); setError('') }
-    }).catch((reason: unknown) => { if (!controller.signal.aborted) setError(String(reason)) })
+    }).catch((reason: unknown) => { if (!controller.signal.aborted) setError(toError(reason)) })
     return () => controller.abort()
   }, [attempt])
   async function change(path: string, method: string, body: unknown) {
@@ -24,26 +27,27 @@ export function DeviceRegistration() {
     try {
       await sharingRequest(path, undefined, method, body)
       setSnapshot(await sharingRequest<Snapshot>('/registration'))
-    } catch (reason) { setError(String(reason)) }
+      onChanged?.()
+    } catch (reason) { setError(toError(reason)) }
     finally { setBusy(false) }
   }
-  return <section className="space-y-4 rounded-2xl border border-[var(--border-default)] bg-[var(--panel)] p-5" aria-label="设备注册设置">
-    <h2 className="font-semibold">注册设置与审批</h2>
-    <p>免验证自动接纳新设备；需要审批时，由管理员批准后接入。切换模式不改变已有设备和待审批申请。</p>
-    {error && <p role="alert">{error}</p>}
-    <Button variant="secondary" disabled={busy} onClick={() => setAttempt(v => v + 1)}>刷新注册状态</Button>
-    {!snapshot && !error && <p role="status">正在读取注册设置…</p>}
+  return <section className="space-y-4 rounded-2xl border border-[var(--border-default)] bg-[var(--panel)] p-5" aria-label={t('设备注册设置', 'Device registration settings')}>
+    <h2 className="font-semibold">{t('注册设置与审批', 'Registration settings and approvals')}</h2>
+    <p>{t('免验证自动接纳新设备；需要审批时，由管理员批准后接入。切换模式不改变已有设备和待审批申请。', 'Open registration automatically accepts new devices. Approval mode requires administrator approval. Switching modes does not change existing devices or pending requests.')}</p>
+    {error && <p role="alert">{localizedError(error)}</p>}
+    <Button variant="secondary" disabled={busy} onClick={() => setAttempt(v => v + 1)}>{t('刷新注册状态', 'Refresh registration status')}</Button>
+    {!snapshot && !error && <p role="status">{t('正在读取注册设置…', 'Loading registration settings…')}</p>}
     {snapshot && <>
-      <label className="block">设备注册模式<select className="ml-3 rounded border border-[var(--border-default)] bg-[var(--control)] p-2" value={snapshot.mode} disabled={busy} onChange={e => void change('/registration', 'PUT', { mode: e.target.value })}>
-        <option value="open">免验证（默认）</option><option value="approval">需要审批</option>
-      </select></label>
-      {snapshot.devices.length === 0 && <p>暂无设备注册申请。</p>}
-      {snapshot.devices.map(device => <article key={device.id} className="space-y-2 border-t border-[var(--border-default)] pt-3">
+      {!deviceId && <label className="block">{t('设备注册模式', 'Device registration mode')}<select className="ml-3 rounded border border-[var(--border-default)] bg-[var(--control)] p-2" value={snapshot.mode} disabled={busy} onChange={e => void change('/registration', 'PUT', { mode: e.target.value })}>
+        <option value="open">{t('免验证（默认）', 'Open (default)')}</option><option value="approval">{t('需要审批', 'Approval required')}</option>
+      </select></label>}
+      {snapshot.devices.length === 0 && <p>{t('暂无设备注册申请。', 'No device registration requests.')}</p>}
+      {snapshot.devices.filter(device => !deviceId || device.id === deviceId).map(device => <article key={device.id} className="space-y-2 border-t border-[var(--border-default)] pt-3">
         <h3>{device.name} · {labels[device.registrationStatus]}</h3><p className="break-all text-sm text-[var(--text-muted)]">{device.id} · {device.platform}</p>
         <div className="flex flex-wrap gap-2">
-          {device.registrationStatus !== 'approved' && device.registrationStatus !== 'unregistered' && <Button disabled={busy} onClick={() => void change(`/devices/${encodeURIComponent(device.id)}/decision`, 'POST', { status: 'approved' })}>批准接入</Button>}
-          {device.registrationStatus === 'pending' && <Button variant="secondary" disabled={busy} onClick={() => void change(`/devices/${encodeURIComponent(device.id)}/decision`, 'POST', { status: 'rejected' })}>拒绝申请</Button>}
-          {device.registrationStatus === 'approved' && <Button variant="secondary" disabled={busy} onClick={() => void change(`/devices/${encodeURIComponent(device.id)}/decision`, 'POST', { status: 'disabled' })}>停用设备</Button>}
+          {device.registrationStatus !== 'approved' && device.registrationStatus !== 'unregistered' && <Button disabled={busy} onClick={() => void change(`/devices/${encodeURIComponent(device.id)}/decision`, 'POST', { status: 'approved' })}>{t('批准接入', 'Approve access')}</Button>}
+          {device.registrationStatus === 'pending' && <Button variant="secondary" disabled={busy} onClick={() => void change(`/devices/${encodeURIComponent(device.id)}/decision`, 'POST', { status: 'rejected' })}>{t('拒绝申请', 'Reject request')}</Button>}
+          {device.registrationStatus === 'approved' && <Button variant="secondary" disabled={busy} onClick={() => void change(`/devices/${encodeURIComponent(device.id)}/decision`, 'POST', { status: 'disabled' })}>{t('停用设备', 'Disable device')}</Button>}
         </div>
       </article>)}
     </>}

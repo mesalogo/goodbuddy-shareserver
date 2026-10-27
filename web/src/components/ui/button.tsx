@@ -1,19 +1,19 @@
 import { cva, type VariantProps } from 'class-variance-authority'
-import type { ButtonHTMLAttributes } from 'react'
+import type { ComponentPropsWithRef } from 'react'
 import { cn } from '../../lib/utils'
 
 const buttonVariants = cva(
-  'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium transition-[color,background-color,border-color,box-shadow,transform] duration-150 outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70 disabled:pointer-events-none disabled:opacity-45 active:translate-y-px',
+  'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--panel)] disabled:pointer-events-none disabled:opacity-45',
   {
     variants: {
       variant: {
         default:
-          'border border-cyan-300/25 bg-cyan-400 text-slate-950 shadow-[0_0_28px_-8px_rgba(34,211,238,.75)] hover:bg-cyan-300',
+          'border border-transparent bg-[var(--accent-solid)] text-[var(--text-on-accent)] hover:bg-[var(--accent-hover)]',
         secondary:
-          'border border-white/10 bg-white/[0.055] text-slate-100 hover:border-white/20 hover:bg-white/[0.09]',
-        ghost: 'text-slate-300 hover:bg-white/[0.07] hover:text-white',
+          'border border-[var(--border-default)] bg-[var(--panel)] text-[var(--text-primary)] hover:bg-[var(--control)]',
+        ghost: 'text-[var(--text-muted)] hover:bg-[var(--control)] hover:text-[var(--text-strong)]',
         danger:
-          'border border-rose-400/25 bg-rose-500/12 text-rose-200 hover:bg-rose-500/20'
+          'border border-[var(--danger)] bg-[var(--danger-subtle)] text-[var(--danger)] hover:opacity-80'
       },
       size: {
         default: 'h-9',
@@ -28,7 +28,7 @@ const buttonVariants = cva(
   }
 )
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> &
+type ButtonProps = ComponentPropsWithRef<'button'> &
   VariantProps<typeof buttonVariants>
 
 export function Button({

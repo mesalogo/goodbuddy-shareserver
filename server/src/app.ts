@@ -12,6 +12,7 @@ import { ConsoleStore } from './console-store.js'
 import { consoleRoutes } from './console-routes.js'
 import { AuthService } from './auth.js'
 import { deviceSharingRoutes } from './device-sharing-routes.js'
+import { consoleAssetRoutes } from './console-assets.js'
 
 export const office = createOfficeService()
 
@@ -30,7 +31,7 @@ export function createApp(store = new SharingStore(), gateway = new GatewayStore
     async (c, next) => {
       // Docs embeds the plugin across ports/origins. Its route supplies a
       // narrowly scoped CSP; the general same-origin frame policy cannot apply.
-      if (c.req.path.startsWith('/api/v1/office/plugin/')) return next()
+      if (c.req.path.startsWith('/api/v1/office/plugin/') || c.req.path.startsWith('/api/v1/office/branding/')) return next()
       return secureHeaders({
       contentSecurityPolicy: {
         defaultSrc: ["'self'"],
@@ -115,6 +116,7 @@ export function createApp(store = new SharingStore(), gateway = new GatewayStore
   app.route('/api/v1/sharing', sharingRoutes(store))
   app.route('/api/v1/device-sharing', deviceSharingRoutes(store))
   app.route('/api/v1/console', consoleRoutes(consoleStore))
+  app.route('/api/v1/console-assets', consoleAssetRoutes())
   app.route('/api/v1/gateway', gatewayRoutes(gateway, 120_000, admin))
   app.route('/api/v1/auth', auth.routes())
   app.route('/', office.routes)

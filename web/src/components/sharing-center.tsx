@@ -1,15 +1,25 @@
 import { PageHeader } from './page-header'
 import { LocalSharing } from './local-sharing'
-import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { PageTabs } from './page-tabs'
+import { useI18n } from '../lib/i18n'
 
 export function SharingCenter() {
-  const [activeTab, setActiveTab] = useState('capabilities')
+  const { t } = useI18n()
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab')
+  const activeTab = tab === 'knowledge' || tab === 'members' || tab === 'devices' ? tab : 'capabilities'
+  const setActiveTab = (value: string) => {
+    const next = new URLSearchParams(params)
+    next.set('tab', value)
+    next.delete('kind')
+    setParams(next)
+  }
   return <>
-    <PageHeader eyebrow="当前本地服务" title="共享中心" description="查看当前服务登记的设备与发布记录。" />
-    <PageTabs title="共享中心" active={activeTab} onChange={setActiveTab} tabs={[{ key: 'capabilities', label: '能力目录' }, { key: 'knowledge', label: '共享知识库' }, { key: 'members', label: '按成员查看' }, { key: 'devices', label: '按设备查看' }]} />
-    <section aria-label="本地服务目录" className="space-y-4">
-      {activeTab === 'capabilities' ? <LocalSharing /> : <div className="space-y-4 rounded-2xl border border-white/10 bg-[var(--panel)] p-4 sm:p-5"><h2 className="font-semibold">{activeTab === 'knowledge' ? '共享知识库' : activeTab === 'members' ? '按成员查看' : '按设备查看'}</h2><p className="text-sm leading-6 text-[var(--text-muted)]">该 Tab 的生产接口尚未接入。当前目录只保存发布元数据，不提供正文读取、成员授权或设备在线状态。</p></div>}
+    <PageHeader eyebrow={t('当前本地服务', 'Current local service')} title={t('共享中心', 'Sharing center')} description={t('查看当前服务登记的设备与发布记录。', 'View devices and publication records registered with this service.')} />
+    <PageTabs title={t('共享中心', 'Sharing center')} active={activeTab} onChange={setActiveTab} tabs={[{ key: 'capabilities', label: t('能力目录', 'Capability directory') }, { key: 'knowledge', label: t('共享知识库', 'Shared knowledge bases') }, { key: 'members', label: t('按成员查看', 'By member') }, { key: 'devices', label: t('按设备查看', 'By device') }]} />
+    <section aria-label={t('本地服务目录', 'Local service directory')} className="space-y-4">
+      <LocalSharing key={activeTab} view={activeTab} />
     </section>
   </>
 }

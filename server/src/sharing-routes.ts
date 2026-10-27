@@ -31,6 +31,13 @@ export function sharingRoutes(store: SharingStore) {
   routes.put('/registration', async c => c.json(await store.setRegistrationMode((await body(c) as { mode?: unknown })?.mode)))
   routes.post('/devices/:id/decision', async c => c.json(await store.decideDevice(validateId(c.req.param('id')), (await body(c) as { status?: unknown })?.status)))
   routes.get('/devices', async (context) => context.json({ devices: await store.devices() }))
+  // Mounted under the application's administrator boundary, never the Desktop protocol.
+  routes.get('/devices/:id/details', async c => c.json(await store.deviceDetails(validateId(c.req.param('id')))))
+  routes.get('/history', async c => {
+    const queries = c.req.queries()
+    if (Object.keys(queries).some(key => key !== 'deviceId') || (queries.deviceId && queries.deviceId.length !== 1)) throw new SharingError(400, 'INVALID_INPUT', 'Only one optional deviceId query parameter is supported.')
+    return c.json(await store.history(queries.deviceId ? validateId(queries.deviceId[0], 'deviceId') : undefined))
+  })
   routes.get('/publications', async (context) => {
     const queries = context.req.queries()
     if (Object.keys(queries).some((key) => key !== 'deviceId') || (queries.deviceId && queries.deviceId.length !== 1)) {

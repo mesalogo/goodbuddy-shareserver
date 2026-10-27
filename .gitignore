@@ -2,6 +2,8 @@ build-server/
 dist/
 node_modules/
 *.png
+!server/src/office/branding/icon-light.png
+!server/src/office/branding/icon-dark.png
 data/
 .env*
 /docs/references/

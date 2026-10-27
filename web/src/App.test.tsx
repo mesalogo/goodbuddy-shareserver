@@ -11,6 +11,7 @@ describe('ShareServer console', () => {
   })
 
   beforeEach(() => {
+    window.localStorage.clear()
     vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: string) => {
       if (url === '/api/v1/gateway/config') {
         return { ok: true, json: async () => ({ upstreams: [], models: [], audits: [], gatewayBaseUrl: null }) }
@@ -24,7 +25,7 @@ describe('ShareServer console', () => {
     window.history.replaceState({}, '', '/')
   })
 
-  it('renders service links without a snapshot request, fabricated metrics or identity', () => {
+  it('renders service links and requests real overview data without fabricated metrics or identity', () => {
     render(<App />)
     expect(screen.getByRole('heading', { name: '运行概览' })).toBeInTheDocument()
     const services = screen.getByRole('region', { name: 'GoodBuddy 联动服务' })
@@ -40,6 +41,8 @@ describe('ShareServer console', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v1/sharing/devices', expect.anything())
     expect(fetch).toHaveBeenCalledWith('/api/v1/sharing/publications', expect.anything())
     expect(fetch).toHaveBeenCalledWith('/api/v1/gateway/config', expect.anything())
+    expect(fetch).toHaveBeenCalledWith('/api/v1/console', { signal: expect.any(AbortSignal) })
+    expect(fetch).toHaveBeenCalledTimes(4)
   })
 
   it.each(pages.filter((page) => page.path.startsWith('/me/')))(
@@ -57,15 +60,14 @@ describe('ShareServer console', () => {
 
   it('preserves theme switching and closes mobile navigation after navigation', () => {
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: '切换到浅色主题' }))
-    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
     fireEvent.click(screen.getByRole('button', { name: '切换到深色主题' }))
     expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
+    fireEvent.click(screen.getByRole('button', { name: '切换到浅色主题' }))
+    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
     fireEvent.click(screen.getByRole('button', { name: '打开导航' }))
-    const navigation = screen.getAllByRole('navigation', { name: '管理控制台' })
-    expect(navigation).toHaveLength(2)
-    fireEvent.click(within(navigation[1]).getByRole('link', { name: '组织与成员' }))
-    expect(screen.getAllByRole('navigation')).toHaveLength(1)
+    const navigation = within(screen.getByRole('dialog', { name: '管理控制台导航' })).getByRole('navigation', { name: '管理控制台' })
+    fireEvent.click(within(navigation).getByRole('link', { name: '组织与成员' }))
+    expect(screen.getAllByRole('navigation', { name: '管理控制台' })).toHaveLength(1)
     expect(screen.getByRole('heading', { name: '组织与成员' })).toBeInTheDocument()
   })
 
@@ -104,7 +106,7 @@ describe('ShareServer console', () => {
     expect(screen.getByRole('link', { name: '查看共享内容' })).toHaveAttribute('href', '/capabilities?view=local&device=device-1')
   })
 
-  it('redirects unknown routes to the overview without requesting a snapshot', () => {
+  it('redirects unknown routes to the overview and requests its real data', () => {
     window.history.replaceState({}, '', '/missing')
     render(<App />)
     expect(screen.getByRole('heading', { name: '运行概览' })).toBeInTheDocument()
@@ -112,5 +114,7 @@ describe('ShareServer console', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v1/sharing/devices', expect.anything())
     expect(fetch).toHaveBeenCalledWith('/api/v1/sharing/publications', expect.anything())
     expect(fetch).toHaveBeenCalledWith('/api/v1/gateway/config', expect.anything())
+    expect(fetch).toHaveBeenCalledWith('/api/v1/console', { signal: expect.any(AbortSignal) })
+    expect(fetch).toHaveBeenCalledTimes(4)
   })
 })

@@ -69,6 +69,27 @@ describe('instance administrator sessions', () => {
     expect((await (await app.request('/api/v1/auth/session')).json()).initialized).toBe(true)
   })
 
+  it('changes passwords, rotates sessions and persists the new credentials', async () => {
+    const first = (await setup()).headers.get('set-cookie')!.split(';')[0]
+    const second = (await post('auth/login', credentials)).headers.get('set-cookie')!.split(';')[0]
+    const body = { currentPassword: credentials.password, newPassword: 'a-new-password-456' }
+    expect((await post('auth/password', body)).status).toBe(401)
+    expect((await post('auth/password', body, first, 'http://evil.example')).status).toBe(403)
+    expect((await post('auth/password', { ...body, currentPassword: 'incorrect' }, first)).status).toBe(400)
+    expect((await post('auth/password', { ...body, newPassword: 'short' }, first)).status).toBe(400)
+    expect((await post('auth/password', { ...body, newPassword: credentials.password }, first)).status).toBe(400)
+    const response = await post('auth/password', body, first)
+    expect(response.status).toBe(200)
+    const renewed = response.headers.get('set-cookie')!.split(';')[0]
+    for (const old of [first, second]) expect((await app.request('/api/v1/console', { headers: { Cookie: old } })).status).toBe(401)
+    expect((await app.request('/api/v1/console', { headers: { Cookie: renewed } })).status).toBe(200)
+    const saved = await readFile(join(directory, 'admin.json'), 'utf8')
+    expect(saved).not.toContain(body.newPassword)
+    const restarted = makeAuth(); await restarted.initialize(); app = makeApp(restarted)
+    expect((await post('auth/login', credentials)).status).toBe(401)
+    expect((await post('auth/login', { ...credentials, password: body.newPassword })).status).toBe(200)
+  })
+
   it('expires sessions after twelve hours', async () => {
     const response = await setup()
     const cookie = response.headers.get('set-cookie')!.split(';')[0]

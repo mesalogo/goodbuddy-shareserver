@@ -12,7 +12,7 @@ Office 区分服务端主存文档与显式的本地来源导入／回写模式�
 冲突契约用于后者；编辑会话结束不删除服务端主文档，检查点可用也不等于本地或 SSH 源文件已回写。
 
 Office 私有部署已有统一 Node/Hono 后端模块、React 上传／编辑入口和 Compose overlay，采用本地
-文件存储和独立 Document Server；当前固定 Community 10.0，真实保存往返与普通插件探针结果见
+文件存储和独立 Document Server；当前使用 Developer Edition 10.0，真实保存往返与普通插件探针结果见
 [10.0 验证记录](../../office-10-validation.md)。配置步骤见
 [Office 部署](../../office-deployment.md)，协议以技术设计第 10.1 节为准。
 
@@ -37,6 +37,7 @@ ShareServer 不属于 Electron Main，不负责桌面端局域网发现，也不
 | [共享网络总体设计](../../../../goodbuddy/docs/architecture/share-network-architecture.md) | 跨端身份、能力、授权、任务、更新和协议权威（GoodBuddy 仓库） |
 | [Desktop Office 协同编辑](../../../../goodbuddy/docs/features/office-document-editing/README.md) | 文档 Tab、源文件回写、冲突和 AI 选区编辑（GoodBuddy 仓库） |
 | [Office 部署](../../office-deployment.md) | ShareServer、Web、Docs 的 IP 地址、环境变量和启动方法 |
+| [Office 品牌与许可证](../../office-branding.md) | Developer 品牌、本地资源、内网裁剪、白标授权与迁移记录 |
 | [10.0 验证记录](../../office-10-validation.md) | 固定镜像上的真实浏览器保存、插件能力与验收边界 |
 
 工作空间协作场景由用户故事追踪；管理员、能力发布者、审计员等既有场景继续由 PRD 与逻辑

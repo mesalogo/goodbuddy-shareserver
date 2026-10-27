@@ -5,13 +5,53 @@ const docsOrigin = __DOCS_ORIGIN__;
 const script = document.createElement('script');
 script.src = docsOrigin + '/sdkjs-plugins/v1/plugins.js';
 script.onload = () => {
+  window.Asc.scope = window.Asc.scope || {};
+  // Request generation, not layout/caret notifications: panel resize is not an edit.
   let epoch = 0;
+  let captured = null;
   let ready = false;
   let busy = false;
   const method = (name, args) => new Promise(resolve => window.Asc.plugin.executeMethod(name, args, resolve));
+  const selection = () => {
+    window.Asc.scope.gbEditorType = window.Asc.plugin.info.editorType;
+    return new Promise(resolve => window.Asc.plugin.callCommand(function () {
+    if (Asc.scope.gbEditorType === 'cell') {
+      const sheet = Api.GetActiveSheet(), range = sheet.GetSelection();
+      const rows = range.GetRowsCount(), cols = range.GetColsCount();
+      if (rows * cols > 400) return {error: '请选中不超过 400 个单元格'};
+      const matrix = value => Array.isArray(value) ? value : [[value]];
+      // GetFormula returns formulas or raw values, not formatted display text.
+      const cells = matrix(range.GetFormula());
+      return {text: JSON.stringify(cells), kind: 'cell', target: {sheet: sheet.GetName(), address: range.GetAddress(), rows, cols}};
+    }
+    const range = Asc.scope.gbEditorType === 'slide' ? Api.GetSelection().GetTextRange() : Api.GetDocument().GetRangeBySelect();
+    if (!range) return null;
+    return {
+      text: range.GetText(),
+      kind: Asc.scope.gbEditorType,
+      target: {start: range.GetStartPos(), end: range.GetEndPos(), paragraphs: range.GetAllParagraphs().map(function (paragraph) { return paragraph.GetInternalId(); })}
+    };
+    }, false, false, resolve));
+  };
+  const capture = async () => {
+    const current = await selection();
+    if (current && current.error) throw new Error(current.error);
+    if (!current || typeof current.text !== 'string' || !current.text.trim() || current.text.length > 32000) throw new Error('请先选中文字或不超过 400 个单元格（最多 32000 字）');
+    captured = current; epoch += 1;
+    return {text: current.text, epoch, kind: current.kind};
+  };
   window.Asc.plugin.init = () => {
     ready = true;
-    window.Asc.plugin.attachEditorEvent('onTargetPositionChanged', () => { epoch += 1; });
+    window.Asc.plugin.attachEvent('onContextMenuShow', () => {
+      window.Asc.plugin.executeMethod('AddContextMenuItem', [{guid: window.Asc.plugin.guid, items: [{id: 'gb-ai-edit', text: window.Asc.plugin.info.editorType === 'cell' ? 'AI 处理所选单元格…' : 'AI 润色…'}]}]);
+    });
+    window.Asc.plugin.attachContextMenuClickEvent('gb-ai-edit', async () => {
+      if (busy) return;
+      busy = true;
+      try { window.top.postMessage({type: 'gb-office-ai-open', selection: await capture()}, location.origin); }
+      catch (error) { window.top.postMessage({type: 'gb-office-ai-open', error: String(error.message || error)}, location.origin); }
+      finally { busy = false; }
+    });
     window.top.postMessage({type: 'gb-office-ready'}, location.origin);
   };
   window.addEventListener('message', async event => {
@@ -23,14 +63,34 @@ script.onload = () => {
     busy = true;
     try {
       if (!['selection', 'replace'].includes(request.action)) throw new Error('不支持的编辑操作');
-      const before = epoch;
-      const text = await method('GetSelectedText', [{Numbering: false, Math: false}]);
+      if (request.action === 'selection') { reply({result: await capture()}); return; }
+      const current = await selection();
+      const text = current && current.text;
       if (typeof text !== 'string' || !text.trim() || text.length > 32000) throw new Error('请选中 1–32000 字的文本');
-      if (before !== epoch) throw new Error('选区已改变，请重新选择');
-      if (request.action === 'selection') { reply({result: {text, epoch}}); return; }
-      if (request.selection?.epoch !== epoch || request.selection?.text !== text) throw new Error('选区或文档已改变，请重新发起编辑');
+      if (!captured || request.selection?.epoch !== epoch || request.selection?.text !== text || JSON.stringify(captured.target) !== JSON.stringify(current.target)) throw new Error('原选区的位置或内容已改变，请重新选择原文并发送修改要求');
       if (typeof request.text !== 'string' || !request.text.trim() || request.text.length > 32000) throw new Error('替换文字长度不符合要求');
-      await method('PasteText', [request.text]);
+      if (captured.kind === 'cell') {
+        let cells;
+        try { cells = JSON.parse(request.text); } catch { throw new Error('表格结果必须是 JSON 二维数组'); }
+        const original = JSON.parse(captured.text);
+        if (!Array.isArray(cells) || cells.length !== captured.target.rows || cells.some(row => !Array.isArray(row) || row.length !== captured.target.cols)) throw new Error('结果的行列数必须与原选区一致');
+        cells.forEach((row, r) => row.forEach((value, c) => {
+          if (value !== null && !['string', 'number', 'boolean'].includes(typeof value)) throw new Error('单元格只支持文字、数值、布尔值或 null');
+          if (!request.allowFormulas && ((typeof value === 'string' && value.startsWith('=')) || (typeof original[r][c] === 'string' && original[r][c].startsWith('='))) && value !== original[r][c]) throw new Error('公式已受保护；确认需要改动后勾选“允许修改公式”');
+        }));
+        window.Asc.scope.gbCells = cells;
+        window.Asc.scope.gbExpected = captured;
+        const applied = await new Promise(resolve => window.Asc.plugin.callCommand(function () {
+          const expected = Asc.scope.gbExpected, sheet = Api.GetActiveSheet(), range = sheet.GetSelection();
+          if (sheet.GetName() !== expected.target.sheet || range.GetAddress() !== expected.target.address) return false;
+          const matrix = value => Array.isArray(value) ? value : [[value]];
+          const cells = matrix(range.GetFormula());
+          if (JSON.stringify(cells) !== expected.text) return false;
+          return range.SetValue(Asc.scope.gbCells) !== false;
+        }, false, true, resolve));
+        if (applied !== true) throw new Error('原单元格内容或区域已改变，请重新发起编辑');
+      } else await method('PasteText', [request.text]);
+      captured = null;
       epoch += 1;
       reply({result: true});
     } catch (error) { reply({error: String(error.message || error)}); }

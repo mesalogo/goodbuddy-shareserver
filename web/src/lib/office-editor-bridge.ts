@@ -1,10 +1,12 @@
-type Selection = { text: string; epoch: number }
+export type Selection = { text: string; epoch: number; kind?: 'word' | 'cell' | 'slide' }
 declare global {
   interface Window {
+    goodbuddyOfficeSave?: { persisted(revision: number): Promise<unknown> }
     goodbuddyOffice?: {
       selection(): Promise<Selection>
-      replace(selection: Selection, text: string): Promise<boolean>
+      replace(selection: Selection, text: string, options?: { allowFormulas?: boolean }): Promise<boolean>
     }
+    goodbuddyOfficeAi?: { request(input: Record<string, unknown>): Promise<{ conversationTitle?: string; requestId?: string; selectedText?: string; state?: 'pending' | 'complete' | 'error'; text?: string; applied?: boolean }> }
   }
 }
 
@@ -15,6 +17,10 @@ export function installOfficeEditorBridge(): () => void {
   const receive = (event: MessageEvent) => {
     if (event.origin !== location.origin || event.source === window || !event.source) return
     if (event.data?.type === 'gb-office-ready') { plugin = event.source as Window; return }
+    if (event.source === plugin && event.data?.type === 'gb-office-ai-open') {
+      window.dispatchEvent(new CustomEvent('gb-office-ai-open', { detail: { selection: event.data.selection, error: event.data.error } }))
+      return
+    }
     if (event.source !== plugin || event.data?.type !== 'gb-office-result') return
     const item = pending.get(event.data.id)
     if (!item) return
@@ -32,7 +38,7 @@ export function installOfficeEditorBridge(): () => void {
   })
   window.goodbuddyOffice = {
     selection: () => send('selection') as Promise<Selection>,
-    replace: (selection, text) => send('replace', { selection, text }) as Promise<boolean>
+    replace: (selection, text, options = {}) => send('replace', { selection, text, allowFormulas: options.allowFormulas === true }) as Promise<boolean>
   }
   return () => {
     window.removeEventListener('message', receive)

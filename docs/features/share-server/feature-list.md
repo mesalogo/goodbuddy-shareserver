@@ -114,7 +114,7 @@ ShareServer 是 GoodBuddy 的独立组织后台。成员的日常操作主要在
 
 Office 已接入 DOCX、XLSX、PPTX 直接编辑和 DOC、XLS、PPT 转换后编辑。Desktop 文档 Tab 与回写已有实现，旧格式转换结果另存为现代格式。已验证样本及尚未完成的完整应用／跨平台范围见 Office 验证记录和相邻 GB 进度。
 
-当前镜像为 Community 10.0；普通插件选区探针通过不代表 GB AI 编辑已接入。GB 新增的本地
+当前镜像为 Developer Edition 10.0，标准品牌配置见[Office 品牌](../../office-branding.md)；普通插件选区探针不能替代完整 GB AI 验收。GB 新增的本地
 预览 Demo 是独立只读实验，不能作为服务端 XLSX／PPTX 编辑支持依据。证据见[实施进度](./progress.md)。
 当前首期功能集中在文档列表与编辑页面，尚未拆成上述全部规划 Tab；真实浏览器保存与容器重启验证见实施进度。
 

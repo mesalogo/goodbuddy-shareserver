@@ -1,5 +1,8 @@
 # ShareServer 技术设计
 
+实例管控面新增的结构化记录、配置导出、策略模拟、任务进度、资源文件与设备事件契约见
+[实例管控面第一版](./control-plane.md)。
+
 设备接入现已与管理会话分离：GB 使用 `/api/v1/device-sharing`，默认免验证接纳；审批、凭据、
 存储兼容与状态接口见[设备注册与审批](./device-registration.md)。旧 `/api/v1/sharing` 为管理员目录接口。
 
@@ -428,6 +431,12 @@ GB 在连接配置时展示能力，实际打开前重新检查启用状态及�
 可选 `webUrl` 声明浏览器可达的 ShareServer Web origin（`SHARESERVER_PUBLIC_URL`），GB 可复用设备连接
 并从 API 地址发现编辑入口。嵌入页无重复顶栏；编辑配置开启原生保存，支持经 JWT 验证的
 forcesavetype=1 回调。原生回调不得覆盖正在进行的带标记 Desktop 保存，最终关闭的轮次仍忽略迟到快照。
+
+生产插件已声明 Word／Excel／PPT 与右键事件，宿主页在右键选区后显示 AI 弹窗。
+Word／PPT 校验选区文字、位置和段落 ID；Excel 校验表名、地址、尺寸、原值与公式，单次上限 400 格／32000 字，
+默认拒绝修改或新增公式。表格回复在 UI 中逐格可编辑，应用必须保持原行列数。
+模型调用仍在 GB 的当前对话 Runtime，服务端不接收模型凭据；专用 Desktop bridge 和对话绑定由
+[GB 技术设计](../../../../goodbuddy/docs/features/office-document-editing/technical-design.md)维护。
 按输出格式校验 OOXML 根部件、content type、命名空间与大小，选择 word/cell/slide 编辑器并使用
 对应 MIME 下载；保存回调必须仍为同一种输出格式。现有 DOCX 元数据按文件名确定格式，无需迁移。
 转换调用 Docs `/converter`，使用同一 JWT 配置。转换期间的原始字节通过临时、需 JWT 的内部源接口提供，
@@ -456,7 +465,7 @@ S3/MinIO、独立 callback worker 或启动 code／安全 Cookie 交换。仅适
 
 可选 `docker/compose.office.yaml` 与现有 Compose 叠加使用，现有默认启动不启用 Office。
 Document Server 与 ShareServer 分进程、分容器，通过 Docker 网络 HTTP
-取源文件和回传结果。默认固定 Community 10.0 的已验证 digest，详见部署文档与 progress。
+取源文件和回传结果。默认使用 Developer Edition 10.0，具体版本、源摘要、标准品牌与白标授权见[品牌说明](../../office-branding.md)。
 私有 Web 编辑的许可证与后续 Desktop／Agent（含 Automation
 API 或插件）的授权分别核验，不由容器能启动推定已获授权或功能兼容。
 
@@ -544,7 +553,7 @@ Document Server，无法确认时阻止覆盖并提示待确认。
 模式，继续保留 Desktop／SSH 源文件基准校验和冲突处理。服务端主存模式不要求本地回写确认；
 当前主存文档上传、下载和持久化已按第 10.1 节实现；归属转移、组织权限及 Desktop 回写尚未实现。
 
-当前以 Community 10.0 普通插件路径作为 Desktop DOCX 接入依据；Developer Edition 与 Automation
+当前部署为 Developer Edition 10.0，继续采用已验证的普通插件路径；Automation
 API 的额外能力另行验证。Document Server 保持独立进程。后续组织部署可扩展为以下结构，
 S3 和独立 worker 不属于第一阶段依赖：
 

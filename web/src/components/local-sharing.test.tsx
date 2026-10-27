@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Device, Publication } from '../../../shared/sharing'
 import { SharingCenter } from './sharing-center'
+import { formatDate, setLanguage } from '../lib/i18n'
 
 const devices: Device[] = [
   { id: 'real-a', name: '本机工作站', platform: 'win32', appVersion: '1.2.3', registeredAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T09:00:00.000Z' },
@@ -25,10 +26,11 @@ function mount() { return render(<BrowserRouter><SharingCenter /></BrowserRouter
 
 describe('local sharing directory', () => {
   beforeEach(() => {
+    setLanguage('zh-CN')
     window.history.replaceState({}, '', '/capabilities?view=local')
     vi.stubGlobal('fetch', mockDirectory())
   })
-  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+  afterEach(() => { cleanup(); setLanguage('zh-CN'); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
   it('loads real metadata, registration times, revoked records and independent permission declarations', async () => {
     mount()
@@ -38,13 +40,26 @@ describe('local sharing directory', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
     for (const resource of ['devices', 'publications']) expect(fetch).toHaveBeenCalledWith(`/api/v1/sharing/${resource}`, { signal: expect.any(AbortSignal) })
     const deviceList = screen.getByRole('region', { name: '真实登记设备' })
-    expect(within(deviceList).getByText('2026-10-01T08:00:00.000Z')).toHaveAttribute('datetime', devices[0].registeredAt)
+    expect(within(deviceList).getByText(formatDate(devices[0].registeredAt))).toHaveAttribute('datetime', devices[0].registeredAt)
     expect(within(deviceList).queryByText(/在线|离线/)).not.toBeInTheDocument()
-    const revoked = screen.getByRole('heading', { name: '已撤销资料' }).closest('article')!
+    expect(screen.getByLabelText('共享类型')).toHaveValue('capability')
+    expect(screen.getByLabelText('共享类型')).toBeDisabled()
+    expect(screen.getByRole('heading', { name: '本地分析能力' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '已撤销资料' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '本地手册' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '撤销发布' })).toHaveLength(1)
+    fireEvent.click(screen.getByRole('tab', { name: '共享知识库' }))
+    const revoked = (await screen.findByRole('heading', { name: '已撤销资料' })).closest('article')!
+    expect(screen.getByLabelText('共享类型')).toHaveValue('knowledge')
+    expect(screen.getByLabelText('共享类型')).toBeDisabled()
+    expect(screen.queryByRole('heading', { name: '本地分析能力' })).not.toBeInTheDocument()
     for (const text of ['已撤销', '预算说明', '搜索：声明允许', '读取原文：未声明允许', '下载：声明允许']) expect(within(revoked).getByText(text)).toBeInTheDocument()
     expect(within(revoked).getByText(/来源声明：服务器/)).toBeInTheDocument()
     expect(screen.queryByText(/当前示例访问者/)).not.toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: '撤销发布' })).toHaveLength(2)
+    expect(within(revoked).queryByRole('button', { name: '撤销发布' })).not.toBeInTheDocument()
+    expect(within(screen.getByRole('heading', { name: '本地手册' }).closest('article')!).getByRole('button', { name: '撤销发布' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '撤销发布' })).toHaveLength(1)
+    expect(fetch).toHaveBeenCalledTimes(4)
     expect(screen.queryByRole('button', { name: /^(发布|登记|下载)/ })).not.toBeInTheDocument()
   })
 
@@ -52,7 +67,10 @@ describe('local sharing directory', () => {
     const app = mount()
     await screen.findByRole('heading', { name: '本机工作站' })
     fireEvent.change(screen.getByLabelText('登记设备'), { target: { value: 'real-a' } })
-    fireEvent.change(screen.getByLabelText('共享类型'), { target: { value: 'knowledge' } })
+    fireEvent.click(screen.getByRole('tab', { name: '共享知识库' }))
+    await screen.findByRole('heading', { name: '本地手册' })
+    expect(screen.getByLabelText('登记设备')).toHaveValue('real-a')
+    expect(screen.getByLabelText('共享类型')).toBeDisabled()
     fireEvent.change(screen.getByLabelText('搜索本地元数据'), { target: { value: ' 操作参考 ' } })
     expect(screen.getByRole('status')).toHaveTextContent('1 项本地发布记录')
     expect(screen.getByRole('heading', { name: '本地手册' })).toBeInTheDocument()
@@ -62,12 +80,14 @@ describe('local sharing directory', () => {
     await screen.findByRole('heading', { name: '本地手册' })
     expect(screen.getByLabelText('登记设备')).toHaveValue('real-a')
     expect(screen.getByLabelText('共享类型')).toHaveValue('knowledge')
+    expect(screen.getByRole('tab', { name: '共享知识库' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByLabelText('搜索本地元数据')).toHaveValue(' 操作参考 ')
     fireEvent.change(screen.getByLabelText('发布状态'), { target: { value: 'revoked' } })
     expect(screen.getByRole('heading', { name: '没有符合条件的本地记录' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '清除筛选' }))
-    expect(window.location.search).toBe('?view=local')
-    expect(screen.getByRole('status')).toHaveTextContent('3 项本地发布记录')
+    expect(window.location.search).toBe('?view=local&tab=knowledge')
+    expect(screen.getByRole('status')).toHaveTextContent('2 项本地发布记录')
+    expect(screen.queryByRole('heading', { name: '本地分析能力' })).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('发布状态'), { target: { value: 'revoked' } })
     expect(screen.getByRole('status')).toHaveTextContent('1 项本地发布记录')
     expect(screen.getByRole('heading', { name: '已撤销资料' })).toBeInTheDocument()
@@ -92,7 +112,7 @@ describe('local sharing directory', () => {
   it('handles network failure and an empty directory, then refreshes newly registered data', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
     mount()
-    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to fetch')
+    expect(await screen.findByRole('alert')).toHaveTextContent('网络请求失败')
     vi.stubGlobal('fetch', mockDirectory([], []))
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     expect(await screen.findByText(/尚无登记设备/)).toBeInTheDocument()
@@ -113,5 +133,38 @@ describe('local sharing directory', () => {
     app.unmount()
     expect(signals).toHaveLength(2)
     expect(signals.every((signal) => signal.aborted)).toBe(true)
+  })
+
+  it('switches live while preserving names, filter values and localized confirmations', async () => {
+    mount()
+    await screen.findByRole('heading', { name: '本机工作站' })
+    act(() => setLanguage('en'))
+    expect(screen.getByRole('heading', { name: 'Sharing center' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '本地分析能力' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Shared knowledge bases' }))
+    await screen.findByRole('heading', { name: '本地手册' })
+    expect(window.location.search).toContain('tab=knowledge')
+    expect(screen.getByLabelText('Sharing type')).toHaveValue('knowledge')
+    expect(screen.getByLabelText('Sharing type')).toBeDisabled()
+    expect(screen.queryByRole('heading', { name: '本地分析能力' })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Knowledge base' })).toHaveValue('knowledge')
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke publication' }))
+    expect(confirm).toHaveBeenCalledWith('Revoke “本地手册”? The record will be retained, but it can no longer be used as published content.')
+    expect(fetch).toHaveBeenCalledTimes(4)
+    act(() => setLanguage('zh-CN'))
+    expect(screen.getByLabelText('共享类型')).toHaveValue('knowledge')
+    expect(screen.getByRole('tab', { name: '共享知识库' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('localizes an existing Chinese server error without losing diagnostic identifiers', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ message: '存储暂时无法访问', code: 'STORAGE_UNAVAILABLE', requestId: 'req-language' }) }))
+    mount()
+    expect(await screen.findByRole('alert')).toHaveTextContent('存储暂时无法访问')
+    act(() => setLanguage('en'))
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('The operation failed. Please try again.')
+    expect(alert).toHaveTextContent('HTTP 503 · STORAGE_UNAVAILABLE · Request ID: req-language')
+    expect(alert.textContent).not.toMatch(/[\u3400-\u9fff]/)
   })
 })

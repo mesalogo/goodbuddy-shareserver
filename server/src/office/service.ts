@@ -8,6 +8,7 @@ import { SignJWT, jwtVerify } from 'jose'
 import { unzip } from 'fflate'
 import { XMLParser, XMLValidator } from 'fast-xml-parser'
 import { officeFormats, conversionFormats, inputFormats, fileExtension, outputFormat, type OfficeFormat } from './formats.js'
+import { officeCustomization, officeLogo } from './branding.js'
 
 function origin(value: string) {
   const url = new URL(value)
@@ -21,6 +22,8 @@ export function officeSettings(env = process.env) {
     internal: origin(env.ONLYOFFICE_INTERNAL_URL ?? 'http://onlyoffice'),
     api: origin(env.OFFICE_INTERNAL_URL ?? 'http://shareserver:8787'),
     web: env.SHARESERVER_PUBLIC_URL ? origin(env.SHARESERVER_PUBLIC_URL) : undefined,
+    whiteLabel: env.OFFICE_WHITE_LABEL_ENABLED === 'true',
+    customUi: env.OFFICE_CUSTOM_UI_ENABLED === 'true',
     limit: Number(env.OFFICE_MAX_BYTES ?? 20 * 1024 * 1024),
     quota: Number(env.OFFICE_QUOTA_BYTES ?? 1024 * 1024 * 1024),
     timeout: Number(env.OFFICE_TIMEOUT_SECONDS ?? 30) * 1000
@@ -222,15 +225,28 @@ export function createOfficeService(cfg = officeSettings(), request: typeof fetc
     const base = `${cfg.api}/internal/office/${record.id}/${current.key}`
     const configuration = {
       documentType: officeFormats[outputFormat(record.name)].documentType, type: 'desktop',
-      document: { fileType: outputFormat(record.name), key: current.key, title: record.name, url: `${base}/source?access=${current.nonce}` },
-      editorConfig: { mode: 'edit', lang: 'zh-CN', callbackUrl: `${base}/callback`, customization: { forcesave: true },
+      document: { fileType: outputFormat(record.name), key: current.key, title: record.name, url: `${base}/source?access=${current.nonce}`, permissions: { chat: false } },
+      editorConfig: { mode: 'edit', lang: /^en(?:-|,|;|$)/i.test(c.req.header('Accept-Language') ?? '') ? 'en' : 'zh-CN', callbackUrl: `${base}/callback`, customization: officeCustomization(cfg.web ?? new URL(c.req.url).origin, cfg.whiteLabel, cfg.customUi),
         plugins: { autostart: ['asc.{C32D455A-5134-4E5C-A161-D919D9380020}'], pluginsData: [`${new URL(c.req.url).origin}/api/v1/office/plugin/config.json`] } }
     }
     return { scriptUrl: `${cfg.public}/web-apps/apps/api/documents/api.js`, config: { ...configuration, token: await sign(configuration) } }
   })))
+  routes.get('/api/v1/office/branding/:asset', async c => {
+    const name = c.req.param('asset')
+    if (!['icon-light.png', 'icon-dark.png', 'logo-light.svg', 'logo-dark.svg'].includes(name)) return fail(404, '品牌资源不存在')
+    const dark = name.includes('-dark.')
+    const icon = await readFile(new URL(`./branding/icon-${dark ? 'dark' : 'light'}.png`, import.meta.url))
+    c.header('Access-Control-Allow-Origin', cfg.public)
+    c.header('Vary', 'Origin')
+    c.header('Cross-Origin-Resource-Policy', 'cross-origin')
+    c.header('Cache-Control', 'public, max-age=3600')
+    c.header('Content-Security-Policy', "default-src 'none'; img-src data:")
+    c.header('Content-Type', name.endsWith('.svg') ? 'image/svg+xml' : 'image/png')
+    return c.body(name.endsWith('.svg') ? officeLogo(icon, dark) : icon)
+  })
   routes.get('/api/v1/office/plugin/config.json', c => {
     c.header('Access-Control-Allow-Origin', cfg.public); c.header('Vary', 'Origin')
-    return c.json({ name: 'GoodBuddy', guid: 'asc.{C32D455A-5134-4E5C-A161-D919D9380020}', baseUrl: '', variations: [{ description: 'GoodBuddy 选区编辑', url: 'index.html', icons: [], isViewer: false, EditorsSupport: ['word'], isVisual: false, isModal: false, isInsideMode: false, initDataType: 'none', initData: '', buttons: [] }] })
+    return c.json({ name: 'GoodBuddy', guid: 'asc.{C32D455A-5134-4E5C-A161-D919D9380020}', baseUrl: '', variations: [{ description: 'GoodBuddy AI 选区编辑', url: 'index.html', icons: ['../branding/icon-light.png', '../branding/icon-light.png'], isViewer: false, EditorsSupport: ['word', 'cell', 'slide'], type: 'background', events: ['onContextMenuShow', 'onContextMenuClick'], isVisual: false, isModal: false, isInsideMode: false, initDataType: 'none', initData: '', buttons: [] }] })
   })
   routes.get('/api/v1/office/plugin/index.html', async c => {
     c.header('Access-Control-Allow-Origin', cfg.public); c.header('Vary', 'Origin')

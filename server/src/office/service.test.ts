@@ -70,6 +70,17 @@ describe('unified Office API', () => {
     service = createOfficeService(cfg, upstream); await service.initialize()
   })
   afterEach(async () => { await rm(cfg.root, { recursive: true, force: true }) })
+  it('signs the selected editor language without changing the document or editing session', async () => {
+    const id = await upload()
+    const chinese = await launch(id)
+    expect(chinese.editorConfig.lang).toBe('zh-CN')
+    const response = await req(`/api/v1/office/documents/${id}/editor`, { method: 'POST', headers: { 'Accept-Language': 'en-US,en;q=0.9' } })
+    const { config } = await response.json()
+    expect(config.editorConfig.lang).toBe('en')
+    expect(config.document).toEqual(chinese.document)
+    const { payload } = await jwtVerify(config.token, new TextEncoder().encode('test-secret-at-least-32-characters-long'))
+    expect(payload.editorConfig).toEqual(config.editorConfig)
+  })
   it('persists the native editor Save button without replacing an outstanding desktop save', async () => {
     const id = await upload(), config = await launch(id)
     expect(config.editorConfig.customization.forcesave).toBe(true)
@@ -114,6 +125,9 @@ describe('unified Office API', () => {
   })
   it('signs source and editor configs and publishes IP-based plugin URLs', async () => {
     const id = await upload(), config = await launch(id)
+    expect(config.document.permissions.chat).toBe(false)
+    expect(config.editorConfig.customization.feedback).toBe(false)
+    expect(config.editorConfig.customization.logo.image).toContain('/api/v1/office/branding/logo-light.svg')
     expect((await launch(id)).document.key).toBe(config.document.key)
     const signed = await jwtVerify(config.token, new TextEncoder().encode(cfg.secret))
     expect(signed.payload.document).toEqual(config.document)
@@ -126,7 +140,7 @@ describe('unified Office API', () => {
     expect(plugin.headers.get('access-control-allow-origin')).toBe(cfg.public)
     expect((await plugin.json()).variations[0].url).toBe('index.html')
     const html = await (await req('/api/v1/office/plugin/index.html')).text()
-    expect(html).toContain('GetSelectedText'); expect(html).not.toContain(cfg.secret)
+    expect(html).toContain('GetRangeBySelect'); expect(html).not.toContain(cfg.secret)
   })
   it('retains immutable versions across final saves, late callbacks and restart', async () => {
     const id = await upload(), config = await launch(id), path = `/api/v1/office/documents/${id}`

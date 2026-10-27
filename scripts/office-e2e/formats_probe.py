@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -20,10 +21,17 @@ from playwright.sync_api import sync_playwright
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--host', default='192.168.0.23')
+parser.add_argument('--docs-port', type=int, default=8080, help='Isolated Docs engine port when testing a new image')
 parser.add_argument('--env-file', default='.env.office')
 parser.add_argument('--browser', help='Optional Chromium executable')
 parser.add_argument('--desktop', action='store_true', help='Also run the adjacent GB legacy-DOC Electron save-as probe')
 parser.add_argument('--desktop-only', action='store_true', help='Run only desktop normal and legacy save flows against the isolated stack')
+parser.add_argument('--ai-only', action='store_true', help='Run three-format Electron right-click AI dialog probe')
+parser.add_argument('--ai', action='store_true', help='Also verify three-format Electron right-click AI after browser checks')
+parser.add_argument('--ai-formats', nargs='+', choices=['docx','xlsx','pptx'], default=['docx','xlsx','pptx'])
+parser.add_argument('--chat-only', action='store_true', help='Run full built GB dialog and local Model Runtime probe')
+parser.add_argument('--branding-screenshots', help='Save branded editor screenshots and check local branding requests')
+parser.add_argument('--custom-ui', action='store_true', help='Validate opt-in GoodBuddy desktop branding and layout')
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[2]
 root = Path(tempfile.mkdtemp(prefix='office-formats-', dir=repo / 'data'))
@@ -53,8 +61,11 @@ try:
         assert (root / f'sample.{legacy}').is_file()
     env = dict(os.environ, OFFICE_ENABLED='true', OFFICE_DATA_DIR=str(root / 'office'), SHARESERVER_DATA_DIR=str(root / 'metadata'),
                SHARESERVER_HOST='0.0.0.0', SHARESERVER_PORT='18087', SHARESERVER_API_PORT='18087', SHARESERVER_PUBLIC_URL=web, DATABASE_URL='',
-               OFFICE_INTERNAL_URL=api, ONLYOFFICE_PUBLIC_URL=f'http://{args.host}:8080', ONLYOFFICE_INTERNAL_URL=f'http://{args.host}:8080')
+               OFFICE_INTERNAL_URL=api, ONLYOFFICE_PUBLIC_URL=f'http://{args.host}:{args.docs_port}', ONLYOFFICE_INTERNAL_URL=f'http://{args.host}:{args.docs_port}')
     log = (root / 'services.log').open('w')
+    if args.custom_ui:
+        env['OFFICE_CUSTOM_UI_ENABLED'] = 'true'
+        env['OFFICE_WHITE_LABEL_ENABLED'] = 'false'
     processes.append(subprocess.Popen(['node', '--env-file=' + str(repo / args.env_file), 'dist/server/server/src/index.js'], cwd=repo, env=env, stdout=log, stderr=log))
     processes.append(subprocess.Popen(['node', 'node_modules/vite/bin/vite.js', '--config', 'web/vite.config.ts', '--host', '0.0.0.0', '--port', '18088'], cwd=repo, env=env, stdout=log, stderr=log))
     for attempt in range(60):
@@ -79,14 +90,33 @@ try:
         print(f'PASS: {extension} upload/conversion -> {record["name"]}; marker and digest verified', flush=True)
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=args.browser, headless=True, args=['--no-sandbox'])
-        for extension, record in ([] if args.desktop_only else records):
+        for extension, record in ([] if args.desktop_only or args.ai_only or args.chat_only else records):
             page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+            branding_responses = []
+            external_requests = set()
+            page.on('response', lambda response: branding_responses.append((response.url, response.status)) if '/api/v1/office/branding/' in response.url else None)
+            page.on('request', lambda request: external_requests.add(request.url.split('/')[2]) if request.url.startswith(('http://','https://')) and request.url.split('/')[2].split(':')[0] not in (args.host, 'localhost', '127.0.0.1') else None)
             page.goto(web + '/office/editor?document=' + record['id'])
             page.wait_for_function('document.documentElement.dataset.officeReady === "true"', timeout=60000)
             frame = page.frames[1]
             if frame.get_by_role('button', name='取消', exact=True).count():
                 frame.get_by_role('button', name='取消', exact=True).click()
             print(f'PASS: {extension} real browser editor ready', flush=True)
+            if args.custom_ui:
+                from urllib.parse import parse_qs, urlparse
+                params = parse_qs(urlparse(frame.url).query)
+                assert params.get('customer') == ['GoodBuddy · Powered by ONLYOFFICE'], params
+                assert '/api/v1/office/branding/icon-light.png' in params.get('logo', [''])[0]
+                assert any('/logo-' in url and status == 200 for url, status in branding_responses)
+                for label in ['插件', 'Plugins']:
+                    assert not any(item.is_visible() for item in frame.get_by_text(label, exact=True).all()), label
+                print('PASS:', extension, 'custom loader parameters, local header logo and hidden Plugins tab', flush=True)
+            if args.branding_screenshots:
+                page.wait_for_function('document.documentElement.dataset.officeReady === "true"')
+                page.screenshot(path=str(Path(args.branding_screenshots) / f'goodbuddy-office-{extension}.png'))
+                assert any('/logo-' in url and status == 200 for url,status in branding_responses), branding_responses
+                assert frame.get_by_role('button', name=re.compile(r'^(Chat|聊天)(\s|$)')).count() == 0
+                print('BRANDING:', extension, 'local logo loaded, chat hidden; external browser hosts:', sorted(external_requests), flush=True)
             # Edit via the actual editor keyboard; inspect persisted OOXML, not just UI state.
             modern = record['name'].split('.')[-1]
             marker = 'GB_FORMAT_EDIT_' + extension.upper()
@@ -114,6 +144,13 @@ try:
                 page.screenshot(path=str(root / f'{extension}-failed.png'))
                 raise RuntimeError(f'{extension}: edited marker missing from saved file')
             print(f'PASS: {extension} keyboard edit -> real callback -> persisted output', flush=True)
+            if args.branding_screenshots:
+                frame.get_by_text('文件', exact=True).first.click()
+                for label in ['帮助', '反馈与支持', 'Help', 'Feedback & Support', 'Suggest a Feature']:
+                    assert not any(item.is_visible() for item in frame.get_by_text(label, exact=True).all()), label
+                if extension == 'docx':
+                    page.screenshot(path=str(Path(args.branding_screenshots) / 'goodbuddy-office-file-menu.png'))
+                print('PASS:', extension, 'File menu hides help/feedback; external browser hosts:', sorted(external_requests), flush=True)
             page.close()
         browser.close()
     if args.desktop or args.desktop_only:
@@ -121,6 +158,12 @@ try:
         if args.desktop_only:
             subprocess.run([sys.executable, str(repo.parent / 'goodbuddy/scripts/verify-office-desktop.py'), '--web', web, '--file-entry'], cwd=repo.parent / 'goodbuddy', check=True, timeout=150)
         subprocess.run([sys.executable, str(repo.parent / 'goodbuddy/scripts/verify-office-desktop.py'), '--web', web, '--legacy'], cwd=repo.parent / 'goodbuddy', check=True, timeout=120)
+    if args.ai_only or args.ai:
+        import sys
+        subprocess.run([sys.executable, str(repo.parent / 'goodbuddy/scripts/verify-office-ai.py'), '--web', web, '--formats', *args.ai_formats], cwd=repo.parent / 'goodbuddy', check=True, timeout=360)
+    if args.chat_only:
+        import sys
+        subprocess.run([sys.executable, str(repo.parent / 'goodbuddy/scripts/verify-office-chat.py'), '--web', web], cwd=repo.parent / 'goodbuddy', check=True, timeout=240)
     print('PASS: selected format/desktop flows; isolated probe data will be removed', flush=True)
 finally:
     for process in processes:
